@@ -1,0 +1,619 @@
+#!/usr/bin/env bash
+# disksage — AI-assisted, never-deletes disk capacity helper
+# https://github.com/<your-org>/disksage
+# License: Apache-2.0
+#
+# Core rule: DiskSage NEVER deletes anything automatically. Suggestions only.
+
+set -uo pipefail
+
+# ───────────────────────────────────────────────────────────────
+# Globals
+# ───────────────────────────────────────────────────────────────
+
+readonly VERSION="0.1.0"
+DISKSAGE_HOME="${DISKSAGE_HOME:-$HOME/.disksage}"
+SCANS_DIR="$DISKSAGE_HOME/scans"
+TRENDS_DIR="$DISKSAGE_HOME/trends"
+OS="$(uname)"
+
+if [[ -t 1 ]]; then
+  C_RESET=$'\033[0m';  C_BOLD=$'\033[1m';  C_DIM=$'\033[2m'
+  C_RED=$'\033[31m';   C_YELLOW=$'\033[33m'; C_GREEN=$'\033[32m'
+  C_CYAN=$'\033[36m'
+else
+  C_RESET=""; C_BOLD=""; C_DIM=""
+  C_RED="";   C_YELLOW=""; C_GREEN=""; C_CYAN=""
+fi
+
+# ───────────────────────────────────────────────────────────────
+# Logging + small helpers
+# ───────────────────────────────────────────────────────────────
+
+info() { printf '%s[disksage]%s %s%s%s\n' "$C_DIM" "$C_RESET" "$C_CYAN" "$*" "$C_RESET" >&2; }
+warn() { printf '%s[disksage]%s %s%s%s\n' "$C_DIM" "$C_RESET" "$C_YELLOW" "$*" "$C_RESET" >&2; }
+die()  { printf '%s[disksage]%s %sERROR:%s %s\n' "$C_DIM" "$C_RESET" "$C_RED" "$C_RESET" "$*" >&2; exit 1; }
+
+ensure_dirs() { mkdir -p "$SCANS_DIR" "$TRENDS_DIR"; }
+
+iso_now()      { date '+%Y-%m-%dT%H:%M:%S'; }
+filename_now() { date '+%Y-%m-%d_%H%M%S'; }
+
+# Human-readable byte formatter (pure awk, no dependencies)
+human_size() {
+  local bytes="${1:-0}"
+  [[ -z "$bytes" ]] && bytes=0
+  awk -v b="$bytes" 'BEGIN {
+    split("B KB MB GB TB PB", u, " ")
+    i = 1
+    while (b >= 1024 && i < 6) { b = b / 1024; i++ }
+    if (i == 1) printf "%d %s", b, u[i]
+    else        printf "%.1f %s", b, u[i]
+  }'
+}
+
+file_size_bytes() {
+  local path="$1"
+  [[ -f "$path" ]] || { echo 0; return; }
+  if [[ "$OS" == "Darwin" ]]; then
+    stat -f%z "$path" 2>/dev/null || echo 0
+  else
+    stat -c%s "$path" 2>/dev/null || echo 0
+  fi
+}
+
+dir_size_bytes() {
+  local path="$1"
+  [[ -e "$path" ]] || { echo 0; return; }
+  local kb
+  kb=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+  [[ -z "$kb" ]] && kb=0
+  echo $(( kb * 1024 ))
+}
+
+# Collapse $HOME to ~ for readable output
+tildify() {
+  local path="$1"
+  if [[ "$path" == "$HOME" ]]; then echo "~"
+  elif [[ "$path" == "$HOME"/* ]]; then echo "~${path#$HOME}"
+  else echo "$path"
+  fi
+}
+
+# ───────────────────────────────────────────────────────────────
+# Findings file: tab-separated
+#   severity \t pattern_id \t path \t size_bytes \t description \t action
+# ───────────────────────────────────────────────────────────────
+
+add_finding() {
+  local findings_file="$1"
+  local pattern_id="$2"
+  local path="$3"
+  local size_bytes="$4"
+  local severity="$5"
+  local description="$6"
+  local action="$7"
+  description="${description//$'\t'/ }"; description="${description//$'\n'/ }"
+  action="${action//$'\t'/ }";           action="${action//$'\n'/ }"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$severity" "$pattern_id" "$path" "$size_bytes" "$description" "$action" \
+    >> "$findings_file"
+}
+
+# ───────────────────────────────────────────────────────────────
+# Pattern checks (macOS-focused for v0.1)
+# ───────────────────────────────────────────────────────────────
+
+# 1. APFS local snapshots (Time Machine keeps deleted files alive)
+check_apfs_snapshots() {
+  local f="$1"
+  [[ "$OS" == "Darwin" ]] || return 0
+  local snaps
+  snaps=$(tmutil listlocalsnapshots / 2>/dev/null | grep -Ec 'com\.apple\.TimeMachine' || true)
+  [[ -z "$snaps" ]] && snaps=0
+  if (( snaps > 3 )); then
+    add_finding "$f" "apfs_snapshots" "/" 0 "high" \
+      "APFS local snapshots: $snaps present (each keeps recently-deleted files alive)" \
+      "List with 'tmutil listlocalsnapshots /'; delete an old one with 'sudo tmutil deletelocalsnapshots <date>'"
+  fi
+}
+
+# 2. iPhone backups — Apple's official location + common third-party apps.
+#    A backup without Manifest.db cannot be restored — flagged high.
+check_iphone_backup() {
+  local f="$1"
+  local location size has_manifest
+  local locations=(
+    "Apple|$HOME/Library/Application Support/MobileSync/Backup"
+    "iMobie|$HOME/Library/Application Support/iMobie"
+    "AnyTrans|$HOME/Library/Application Support/AnyTrans"
+    "3uTools|$HOME/Library/Application Support/3uTools"
+    "DearMob|$HOME/Library/Application Support/DearMob"
+    "iMazing|$HOME/Library/Application Support/iMazing"
+  )
+  for location in "${locations[@]}"; do
+    local vendor="${location%%|*}"
+    local vdir="${location#*|}"
+    [[ -d "$vdir" ]] || continue
+    size=$(dir_size_bytes "$vdir")
+    # Ignore < 1 GB (likely empty shells or cache-only installs)
+    (( size > 1024 * 1024 * 1024 )) || continue
+    has_manifest=false
+    while IFS= read -r -d '' _; do has_manifest=true; break; done \
+      < <(find "$vdir" -name Manifest.db -print0 2>/dev/null)
+    if $has_manifest; then
+      add_finding "$f" "iphone_backup" "$vdir" "$size" "medium" \
+        "iPhone backup ($vendor): $(human_size "$size"), restore-capable" \
+        "Open $vendor or Finder > Devices; archive to external drive before deleting"
+    else
+      add_finding "$f" "iphone_backup" "$vdir" "$size" "high" \
+        "iPhone backup ($vendor): $(human_size "$size") — BROKEN: no Manifest.db (cannot restore)" \
+        "Archive any needed files then delete to reclaim space"
+    fi
+  done
+}
+
+# 3. Docker.raw (Docker Desktop VM disk; never shrinks automatically)
+check_docker_raw() {
+  local f="$1"
+  local candidates=(
+    "$HOME/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw"
+    "$HOME/Library/Containers/com.docker.docker/Data/vms/0/Docker.raw"
+    "$HOME/Library/Group Containers/group.com.docker/DockerDesktop/vms/0/data/Docker.raw"
+  )
+  local c size
+  for c in "${candidates[@]}"; do
+    [[ -f "$c" ]] || continue
+    size=$(file_size_bytes "$c")
+    if (( size > 10 * 1024 * 1024 * 1024 )); then
+      add_finding "$f" "docker_raw" "$c" "$size" "medium" \
+        "Docker.raw: $(human_size "$size") — Docker Desktop VM disk does not auto-shrink" \
+        "In Docker Desktop: Troubleshoot → Clean / Purge data, OR 'docker system prune -a --volumes'"
+    fi
+  done
+}
+
+# 4. Ollama local model blobs
+check_ollama_models() {
+  local f="$1"
+  local mdir="$HOME/.ollama/models"
+  [[ -d "$mdir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$mdir")
+  if (( size > 10 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "ollama_models" "$mdir" "$size" "medium" \
+      "Ollama models: $(human_size "$size") under $(tildify "$mdir")" \
+      "Review 'ollama list', remove unused with 'ollama rm <model>'"
+  fi
+}
+
+# 5. node_modules aggregate under ~/Development (sum across projects)
+check_node_modules_aggregate() {
+  local f="$1"
+  local devroot="$HOME/Development"
+  [[ -d "$devroot" ]] || return 0
+  local total=0 sz nm
+  while IFS= read -r nm; do
+    sz=$(dir_size_bytes "$nm")
+    total=$(( total + sz ))
+  done < <(find "$devroot" -type d -name node_modules -prune -print 2>/dev/null)
+  if (( total > 10 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "node_modules_aggregate" "$devroot" "$total" "low" \
+      "node_modules under $(tildify "$devroot"): $(human_size "$total") total across projects" \
+      "For stale projects: 'rm -rf node_modules' — reinstall anytime with your package manager"
+  fi
+}
+
+# 6. macOS VM swap + sleepimage (rebuilt on reboot)
+check_vm_swap() {
+  local f="$1"
+  [[ "$OS" == "Darwin" ]] || return 0
+  local vmdir="/private/var/vm"
+  [[ -d "$vmdir" ]] || return 0
+  local total=0 swap sz
+  for swap in "$vmdir"/swapfile* "$vmdir"/sleepimage; do
+    [[ -f "$swap" ]] || continue
+    sz=$(file_size_bytes "$swap")
+    total=$(( total + sz ))
+  done
+  if (( total > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "vm_swap" "$vmdir" "$total" "medium" \
+      "macOS VM swap: $(human_size "$total")" \
+      "Reboot your Mac — swapfiles are regenerated from scratch and reclaimed"
+  fi
+}
+
+# 7. Electron / browser-style caches inside ~/Library/Application Support
+check_electron_cache() {
+  local f="$1"
+  local appsup="$HOME/Library/Application Support"
+  [[ -d "$appsup" ]] || return 0
+  local d app_total cache cdir sz appname
+  while IFS= read -r d; do
+    [[ -d "$d" ]] || continue
+    app_total=0
+    for cache in "Cache" "Code Cache" "GPUCache"; do
+      cdir="$d/$cache"
+      [[ -d "$cdir" ]] || continue
+      sz=$(dir_size_bytes "$cdir")
+      app_total=$(( app_total + sz ))
+    done
+    if (( app_total > 500 * 1024 * 1024 )); then
+      appname="$(basename "$d")"
+      add_finding "$f" "electron_cache" "$d" "$app_total" "safe" \
+        "$appname caches: $(human_size "$app_total") (regenerated on demand)" \
+        "Quit $appname, then delete Cache / Code Cache / GPUCache inside $(tildify "$d")"
+    fi
+  done < <(find "$appsup" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+}
+
+# 8. Xcode DerivedData (safe to wipe; regenerates on next build)
+check_xcode_derived_data() {
+  local f="$1"
+  local dd="$HOME/Library/Developer/Xcode/DerivedData"
+  [[ -d "$dd" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dd")
+  if (( size > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "xcode_derived_data" "$dd" "$size" "safe" \
+      "Xcode DerivedData: $(human_size "$size") (regenerated on next build)" \
+      "Xcode → Settings → Locations → DerivedData → arrow → move to Trash"
+  fi
+}
+
+# 9. Flow-type: files > 500 MB modified in the last 30 days.
+#    Returns top 20 rows, "size_bytes<TAB>path".
+find_flow_type_files() {
+  find "$HOME" -type f -size +500M -mtime -30 -print 2>/dev/null \
+    | while IFS= read -r fpath; do
+        printf '%s\t%s\n' "$(file_size_bytes "$fpath")" "$fpath"
+      done \
+    | sort -rn \
+    | head -20
+}
+
+# ───────────────────────────────────────────────────────────────
+# Report rendering
+# ───────────────────────────────────────────────────────────────
+
+render_findings_section() {
+  local findings_file="$1"
+  local severity="$2"
+  local label="$3"
+  local rows count
+  rows=$(awk -F'\t' -v s="$severity" '$1==s' "$findings_file" 2>/dev/null || true)
+  [[ -z "$rows" ]] && return 0
+  count=$(printf '%s\n' "$rows" | grep -c .)
+  local plural=""; (( count == 1 )) || plural="s"
+  echo
+  echo "### $label ($count item$plural)"
+  printf '%s\n' "$rows" | sort -t$'\t' -k4,4 -nr \
+    | while IFS=$'\t' read -r _sev _pid path size desc action; do
+        echo "- **$desc**"
+        [[ -n "$path" && "$path" != "/" ]] && echo "  - Path: \`$(tildify "$path")\`"
+        (( size > 0 )) && echo "  - Size: $(human_size "$size")"
+        [[ -n "$action" ]] && echo "  - Action: $action"
+      done
+}
+
+render_flow_type_section() {
+  echo
+  echo "## 📈 Recently Grown Files (> 500 MB, last 30 days)"
+  local rows
+  rows=$(find_flow_type_files)
+  if [[ -z "$rows" ]]; then
+    echo
+    echo "_No recently grown large files detected._"
+    return
+  fi
+  echo
+  echo '```'
+  printf '%s\n' "$rows" | while IFS=$'\t' read -r sz path; do
+    printf '%-10s  %s\n' "$(human_size "$sz")" "$(tildify "$path")"
+  done
+  echo '```'
+}
+
+render_disk_usage() {
+  echo "## 📊 Current Disk Usage"
+  echo
+  echo '```'
+  df -h 2>/dev/null | awk 'NR==1 || $1 ~ /^\/dev\//'
+  echo '```'
+}
+
+render_report() {
+  local findings_file="$1"
+  local out="$2"
+  local include_flow="${3:-true}"
+  local total_findings
+  total_findings=$(wc -l < "$findings_file" | tr -d ' ')
+  {
+    echo "# 🩺 DiskSage Report"
+    echo
+    echo "_Generated: $(date '+%Y-%m-%d %H:%M:%S')_"
+    echo
+    render_disk_usage
+    echo
+    echo "## 🎯 Findings"
+    if [[ "$total_findings" == "0" ]]; then
+      echo
+      echo "_No notable patterns detected. Your disk looks healthy._"
+    else
+      render_findings_section "$findings_file" "high"   "🔴 High Priority"
+      render_findings_section "$findings_file" "medium" "🟡 Medium Priority"
+      render_findings_section "$findings_file" "low"    "🔵 Low Priority"
+      render_findings_section "$findings_file" "safe"   "🟢 Safe to Delete"
+      render_findings_section "$findings_file" "info"   "ℹ️ Informational"
+    fi
+    if [[ "$include_flow" == "true" ]]; then
+      render_flow_type_section
+    else
+      echo
+      echo "## 📈 Recently Grown Files"
+      echo
+      echo "_Skipped (\`--quick\` mode). Re-run \`disksage scan\` without \`--quick\` to include this section._"
+    fi
+    echo
+    echo "## 💡 Next Steps"
+    echo
+    echo "1. Review findings above, highest priority first."
+    echo "2. **DiskSage never deletes anything automatically** — every action is your call."
+    echo "3. For backups or one-of-a-kind files, archive to external storage before deleting."
+    echo "4. Track growth over time with \`disksage snapshot\` (and \`disksage trend\`)."
+    echo
+    echo "---"
+    echo "_Generated by DiskSage v$VERSION — Apache-2.0. Suggestions only; you decide._"
+  } > "$out"
+}
+
+# ───────────────────────────────────────────────────────────────
+# Commands
+# ───────────────────────────────────────────────────────────────
+
+cmd_scan() {
+  ensure_dirs
+  local use_ai=false
+  local quick=false
+  while (( $# > 0 )); do
+    case "$1" in
+      --ai)           use_ai=true ;;
+      --quick)        quick=true ;;
+      -h|--help)      cmd_help scan; return 0 ;;
+      *)              warn "scan: ignoring unknown argument '$1'" ;;
+    esac
+    shift
+  done
+  if $use_ai; then
+    warn "--ai mode is not yet implemented (planned for v0.2). Running standard scan."
+  fi
+
+  if ! $quick; then
+    # Pre-scan banner about TCC (Full Disk Access) behavior. The flow-type
+    # pass walks $HOME including protected paths (Messages, Photos, Mail, …)
+    # so macOS may show permission dialogs. Users who want a quiet scan can
+    # opt out with --quick.
+    cat >&2 <<EOF
+
+${C_BOLD}Heads-up:${C_RESET} this scan includes a flow-type pass that walks your home
+directory for large files modified in the last 30 days. macOS may show
+permission dialogs for protected apps (Photos, Messages, Mail, Calendar…).
+
+  ${C_GREEN}Allow${C_RESET}   DiskSage reads ${C_BOLD}size + modification time only${C_RESET} (never contents).
+  ${C_YELLOW}Deny${C_RESET}    those files just won't appear in the flow-type report.
+  ${C_CYAN}Skip${C_RESET}    run ${C_BOLD}disksage scan --quick${C_RESET} to omit the flow-type pass entirely.
+
+EOF
+  fi
+
+  if $quick; then
+    info "Scanning known hot spots… (quick mode: flow-type pass skipped)"
+  else
+    info "Scanning known hot spots… (this may take a minute; find can print permission warnings)"
+  fi
+
+  local findings_file
+  findings_file=$(mktemp)
+  # Expand path NOW (double quotes) — findings_file is local, so deferred
+  # single-quote expansion would trip `set -u` after cmd_scan returns.
+  # shellcheck disable=SC2064
+  trap "rm -f '$findings_file'" EXIT
+
+  check_apfs_snapshots          "$findings_file"
+  check_iphone_backup           "$findings_file"
+  check_docker_raw              "$findings_file"
+  check_ollama_models           "$findings_file"
+  check_node_modules_aggregate  "$findings_file"
+  check_vm_swap                 "$findings_file"
+  check_electron_cache          "$findings_file"
+  check_xcode_derived_data      "$findings_file"
+
+  local out include_flow
+  out="$SCANS_DIR/$(filename_now).md"
+  include_flow="true"
+  $quick && include_flow="false"
+  render_report "$findings_file" "$out" "$include_flow"
+
+  info "Report saved: $(tildify "$out")"
+  printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$out")"
+}
+
+cmd_snapshot() {
+  ensure_dirs
+  local now_iso filename df_out
+  now_iso=$(iso_now)
+  filename="$TRENDS_DIR/$(filename_now).json"
+  df_out=$(df -Pk 2>/dev/null | awk 'NR>1')
+
+  DF_OUT="$df_out" NOW_ISO="$now_iso" OUT_PATH="$filename" python3 <<'PYEOF'
+import os, json
+
+df_out = os.environ["DF_OUT"]
+now_iso = os.environ["NOW_ISO"]
+out_path = os.environ["OUT_PATH"]
+
+volumes = []
+for line in df_out.splitlines():
+    parts = line.split()
+    if len(parts) < 6:
+        continue
+    fs = parts[0]
+    try:
+        size_kb = int(parts[1]); used_kb = int(parts[2]); avail_kb = int(parts[3])
+    except ValueError:
+        continue
+    if not fs.startswith("/dev/"):
+        continue
+    volumes.append({
+        "filesystem": fs,
+        "mount": " ".join(parts[5:]),
+        "size_bytes": size_kb * 1024,
+        "used_bytes": used_kb * 1024,
+        "avail_bytes": avail_kb * 1024,
+        "capacity": parts[4],
+    })
+
+with open(out_path, "w") as w:
+    json.dump({"timestamp": now_iso, "volumes": volumes}, w, indent=2)
+PYEOF
+
+  info "Snapshot written: $(tildify "$filename")"
+}
+
+cmd_trend() {
+  ensure_dirs
+  local count
+  count=$(find "$TRENDS_DIR" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" == "0" ]]; then
+    warn "No snapshots yet. Run 'disksage snapshot' first (or set a cron job)."
+    return 1
+  fi
+  info "$count snapshot(s) in $(tildify "$TRENDS_DIR")"
+
+  TRENDS_DIR="$TRENDS_DIR" python3 <<'PYEOF'
+import os, json, glob
+from collections import defaultdict
+
+trends_dir = os.environ["TRENDS_DIR"]
+files = sorted(glob.glob(os.path.join(trends_dir, "*.json")))
+
+def human(n):
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
+        i += 1
+    return f"{int(n)} {units[i]}" if i == 0 else f"{n:.1f} {units[i]}"
+
+by_fs = defaultdict(list)
+for f in files:
+    try:
+        with open(f) as r:
+            d = json.load(r)
+    except Exception:
+        continue
+    ts = d.get("timestamp", "")
+    for v in d.get("volumes", []):
+        key = (v.get("filesystem", ""), v.get("mount", ""))
+        by_fs[key].append((
+            ts,
+            v.get("size_bytes", 0),
+            v.get("used_bytes", 0),
+            v.get("avail_bytes", 0),
+        ))
+
+for (fs, mount), series in sorted(by_fs.items()):
+    print(f"\n=== {fs}  ({mount}) ===")
+    print(f"{'Timestamp':<20}  {'Used':>10}  {'Avail':>10}  {'Capacity':>9}")
+    print("-" * 56)
+    for ts, sz, used, avail in series:
+        cap = (used / sz * 100) if sz else 0.0
+        print(f"{ts:<20}  {human(used):>10}  {human(avail):>10}  {cap:>8.1f}%")
+    if len(series) > 1:
+        delta = series[-1][2] - series[0][2]
+        sign = "+" if delta >= 0 else "-"
+        print(f"\nΔ used: {sign}{human(abs(delta))} over {len(series)} snapshots")
+PYEOF
+}
+
+cmd_version() { echo "disksage v$VERSION"; }
+
+cmd_help() {
+  local sub="${1:-}"
+  case "$sub" in
+    scan)
+      cat <<EOF
+Usage: disksage scan [--quick] [--ai]
+
+Scan known heavy-hitter locations and write a Markdown report to
+  $SCANS_DIR/
+
+Options:
+  --quick   Skip the flow-type pass that walks \$HOME for large recent
+            files. Faster, and avoids macOS permission dialogs for
+            TCC-protected apps (Photos, Messages, Mail, …).
+  --ai      (planned for v0.2) Use Claude API for contextual judgment.
+
+Reports are never destructive. DiskSage only suggests.
+EOF
+      ;;
+    snapshot)
+      cat <<EOF
+Usage: disksage snapshot
+
+Record current disk usage as JSON in
+  $TRENDS_DIR/
+
+Run on a schedule (e.g. hourly cron) to detect "sudden growth" events:
+  (crontab -l 2>/dev/null; echo "0 * * * * $(command -v disksage) snapshot") | crontab -
+EOF
+      ;;
+    trend)
+      cat <<EOF
+Usage: disksage trend
+
+Print disk usage history from previously collected snapshots.
+EOF
+      ;;
+    *)
+      cat <<EOF
+${C_BOLD}🩺 DiskSage v$VERSION${C_RESET} — AI-assisted, never-deletes disk capacity helper.
+
+Usage: disksage <command> [options]
+
+Commands:
+  scan [--quick]    Scan known hot spots, write a Markdown report.
+                    --quick omits the flow-type pass (no TCC dialogs).
+  snapshot          Record current disk usage for trend tracking.
+  trend             Show disk usage history over time.
+  version           Print version.
+  help [command]    Show this help, or help for a specific command.
+
+Data lives under $DISKSAGE_HOME:
+  scans/    Markdown scan reports
+  trends/   JSON disk-usage snapshots
+
+Core rule: ${C_BOLD}DiskSage never deletes anything automatically.${C_RESET}
+EOF
+      ;;
+  esac
+}
+
+# ───────────────────────────────────────────────────────────────
+# Dispatcher
+# ───────────────────────────────────────────────────────────────
+
+main() {
+  local cmd="${1:-help}"
+  (( $# > 0 )) && shift
+  case "$cmd" in
+    scan)                  cmd_scan "$@" ;;
+    snapshot)              cmd_snapshot "$@" ;;
+    trend)                 cmd_trend "$@" ;;
+    version|--version|-v)  cmd_version ;;
+    help|--help|-h)        cmd_help "$@" ;;
+    *)                     die "unknown command: $cmd  (try: disksage help)" ;;
+  esac
+}
+
+main "$@"
