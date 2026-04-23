@@ -20,10 +20,10 @@ OS="$(uname)"
 if [[ -t 1 ]]; then
   C_RESET=$'\033[0m';  C_BOLD=$'\033[1m';  C_DIM=$'\033[2m'
   C_RED=$'\033[31m';   C_YELLOW=$'\033[33m'; C_GREEN=$'\033[32m'
-  C_BLUE=$'\033[34m';  C_CYAN=$'\033[36m'
+  C_CYAN=$'\033[36m'
 else
   C_RESET=""; C_BOLD=""; C_DIM=""
-  C_RED="";   C_YELLOW=""; C_GREEN=""; C_BLUE=""; C_CYAN=""
+  C_RED="";   C_YELLOW=""; C_GREEN=""; C_CYAN=""
 fi
 
 # ───────────────────────────────────────────────────────────────
@@ -415,7 +415,8 @@ EOF
   local findings_file
   findings_file=$(mktemp)
   # Expand path NOW (double quotes) — findings_file is local, so deferred
-  # expansion would trip `set -u` after cmd_scan returns.
+  # single-quote expansion would trip `set -u` after cmd_scan returns.
+  # shellcheck disable=SC2064
   trap "rm -f '$findings_file'" EXIT
 
   check_apfs_snapshots          "$findings_file"
@@ -427,8 +428,9 @@ EOF
   check_electron_cache          "$findings_file"
   check_xcode_derived_data      "$findings_file"
 
-  local out="$SCANS_DIR/$(filename_now).md"
-  local include_flow="true"
+  local out include_flow
+  out="$SCANS_DIR/$(filename_now).md"
+  include_flow="true"
   $quick && include_flow="false"
   render_report "$findings_file" "$out" "$include_flow"
 
