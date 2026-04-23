@@ -325,6 +325,7 @@ render_disk_usage() {
 render_report() {
   local findings_file="$1"
   local out="$2"
+  local include_flow="${3:-true}"
   local total_findings
   total_findings=$(wc -l < "$findings_file" | tr -d ' ')
   {
@@ -345,7 +346,14 @@ render_report() {
       render_findings_section "$findings_file" "safe"   "🟢 Safe to Delete"
       render_findings_section "$findings_file" "info"   "ℹ️ Informational"
     fi
-    render_flow_type_section
+    if [[ "$include_flow" == "true" ]]; then
+      render_flow_type_section
+    else
+      echo
+      echo "## 📈 Recently Grown Files"
+      echo
+      echo "_Skipped (\`--quick\` mode). Re-run \`disksage scan\` without \`--quick\` to include this section._"
+    fi
     echo
     echo "## 💡 Next Steps"
     echo
@@ -366,11 +374,13 @@ render_report() {
 cmd_scan() {
   ensure_dirs
   local use_ai=false
+  local quick=false
   while (( $# > 0 )); do
     case "$1" in
-      --ai)       use_ai=true ;;
-      -h|--help)  cmd_help scan; return 0 ;;
-      *)          warn "scan: ignoring unknown argument '$1'" ;;
+      --ai)           use_ai=true ;;
+      --quick)        quick=true ;;
+      -h|--help)      cmd_help scan; return 0 ;;
+      *)              warn "scan: ignoring unknown argument '$1'" ;;
     esac
     shift
   done
@@ -378,7 +388,29 @@ cmd_scan() {
     warn "--ai mode is not yet implemented (planned for v0.2). Running standard scan."
   fi
 
-  info "Scanning known hot spots… (this may take a minute; find can print permission warnings)"
+  if ! $quick; then
+    # Pre-scan banner about TCC (Full Disk Access) behavior. The flow-type
+    # pass walks $HOME including protected paths (Messages, Photos, Mail, …)
+    # so macOS may show permission dialogs. Users who want a quiet scan can
+    # opt out with --quick.
+    cat >&2 <<EOF
+
+${C_BOLD}Heads-up:${C_RESET} this scan includes a flow-type pass that walks your home
+directory for large files modified in the last 30 days. macOS may show
+permission dialogs for protected apps (Photos, Messages, Mail, Calendar…).
+
+  ${C_GREEN}Allow${C_RESET}   DiskSage reads ${C_BOLD}size + modification time only${C_RESET} (never contents).
+  ${C_YELLOW}Deny${C_RESET}    those files just won't appear in the flow-type report.
+  ${C_CYAN}Skip${C_RESET}    run ${C_BOLD}disksage scan --quick${C_RESET} to omit the flow-type pass entirely.
+
+EOF
+  fi
+
+  if $quick; then
+    info "Scanning known hot spots… (quick mode: flow-type pass skipped)"
+  else
+    info "Scanning known hot spots… (this may take a minute; find can print permission warnings)"
+  fi
 
   local findings_file
   findings_file=$(mktemp)
@@ -396,7 +428,9 @@ cmd_scan() {
   check_xcode_derived_data      "$findings_file"
 
   local out="$SCANS_DIR/$(filename_now).md"
-  render_report "$findings_file" "$out"
+  local include_flow="true"
+  $quick && include_flow="false"
+  render_report "$findings_file" "$out" "$include_flow"
 
   info "Report saved: $(tildify "$out")"
   printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$out")"
@@ -507,13 +541,16 @@ cmd_help() {
   case "$sub" in
     scan)
       cat <<EOF
-Usage: disksage scan [--ai]
+Usage: disksage scan [--quick] [--ai]
 
 Scan known heavy-hitter locations and write a Markdown report to
   $SCANS_DIR/
 
 Options:
-  --ai    (planned for v0.2) Use Claude API for contextual judgment.
+  --quick   Skip the flow-type pass that walks \$HOME for large recent
+            files. Faster, and avoids macOS permission dialogs for
+            TCC-protected apps (Photos, Messages, Mail, …).
+  --ai      (planned for v0.2) Use Claude API for contextual judgment.
 
 Reports are never destructive. DiskSage only suggests.
 EOF
@@ -543,7 +580,8 @@ ${C_BOLD}🩺 DiskSage v$VERSION${C_RESET} — AI-assisted, never-deletes disk c
 Usage: disksage <command> [options]
 
 Commands:
-  scan [--ai]       Scan known hot spots, write a Markdown report.
+  scan [--quick]    Scan known hot spots, write a Markdown report.
+                    --quick omits the flow-type pass (no TCC dialogs).
   snapshot          Record current disk usage for trend tracking.
   trend             Show disk usage history over time.
   version           Print version.
