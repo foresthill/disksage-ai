@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / temp
+*.swp
+*~
+*.tmp
+
+# DiskSage runtime data (created under $HOME/.disksage by default)
+.disksage/

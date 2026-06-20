@@ -35,13 +35,16 @@
 
 ### 完成しているもの
 
-- `disksage` — Bash CLI（500行、Python 3 以外の依存なし）
+- `disksage` — Bash CLI（Python 3 以外の依存なし）
   - `scan` — 10パターンの肥大箇所を検出、Markdown レポート生成
+  - `scan --ai` — Claude API による文脈判定（BYOK、メタデータのみ送信）✅ v0.2 実装済み
+  - `scan --quick` — flow-type パスをスキップ（TCC ダイアログ回避）
   - `snapshot` — ディスク使用量記録
   - `trend` — 時系列表示
   - `help` / `version`
 - README.md（OSSリリース品質）
 - LICENSE（Apache-2.0）
+- CONTRIBUTING.md、CI（GitHub Actions: bash 構文 + ShellCheck）
 
 ### 検出パターン（v0.1）
 
@@ -99,10 +102,16 @@
 
 ### 近い将来（Phase 2）
 
-- [ ] `--ai` モードの実装（Claude API 連携）
-  - 入力：ファイル名・パス・サイズ・メタデータのみ
-  - 出力：削除可否の判定 + 理由
-  - BYOK（`ANTHROPIC_API_KEY` 環境変数）
+- [x] `--ai` モードの実装（Claude API 連携）✅ 完了（curl + structured outputs）
+  - 入力：パス・サイズ・メタデータのみ（ファイル内容は送信しない）
+  - **マスキング実装済み**：送信前に `$HOME`→`~`（ユーザー名除去）、ユーザー固有フォルダ名→`<dirN>` に匿名化。既知ツール/ベンダー名（iMobie/.ollama/node_modules 等）は判定精度維持のため保持
+  - プレビュー＝実送信物（マスク済みパスを確認画面に表示）、レポートは実パス（index で突合）
+  - 出力：判定（safe_to_delete / archive_then_delete / review_first / keep）+ confidence + 理由
+  - BYOK・2プロバイダ対応（`ai_resolve` で自動判定）：`ANTHROPIC_API_KEY`（本家 / x-api-key）または `OPENROUTER_API_KEY`（OpenRouter / Bearer、`/api/v1/messages` が Anthropic 互換）。`DISKSAGE_AI_PROVIDER` / `DISKSAGE_AI_BASE_URL` で強制可
+  - モデルは `DISKSAGE_MODEL`（既定 本家=`claude-opus-4-8` / OpenRouter=`anthropic/claude-opus-4.8`）
+  - 送信前にプライバシープレビュー画面で確認（`--yes` でスキップ可）
+  - 実装メモ：`ai_mask_findings` / `build_ai_request` / `parse_ai_response` / `ai_preview_and_confirm` / `run_ai_analysis` / `render_ai_section`（`disksage` 内）
+  - 既知の残留：description 文に app/ベンダー名が残る（判定シグナルかつ低機微・プレビューで可視）。残課題：API キーの OS キーチェーン保管（現状は環境変数のみ）、flow-type ファイルの AI 判定対象化、description のマスキング強化
 - [ ] パターンを JSON に外出し（現在は bash にハードコード）
 - [ ] より多くのパターン（Photos Library、Mail、iCloud Optimized、Time Machine local）
 - [ ] Homebrew tap 対応
