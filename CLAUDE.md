@@ -39,6 +39,7 @@
   - `scan` — 10パターンの肥大箇所を検出、Markdown レポート生成
   - `scan --ai` — Claude API による文脈判定（BYOK、メタデータのみ送信）✅ v0.2 実装済み
   - `scan --quick` — flow-type パスをスキップ（TCC ダイアログ回避）
+  - レポート i18n ✅：`DISKSAGE_LANG`（`$LANG` 自動判定）で日本語レポート全文対応。`t()`/`t_lookup()` + `CATALOG_EN`/`CATALOG_JA`（bash 3.2 互換、連想配列不使用）。見出し・各パターン説明/Action・Next Steps・AI判定欄・フッタを翻訳。CLI/help は英語のまま。日本語以外の言語コードは AI reasoning のみ翻訳し、雛形は英語フォールバック
   - `snapshot` — ディスク使用量記録
   - `trend` — 時系列表示
   - `help` / `version`
