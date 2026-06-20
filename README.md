@@ -91,9 +91,19 @@ DISKSAGE_MODEL=anthropic/claude-haiku-4.5 disksage scan --ai   # OpenRouter
 If both keys are set, Anthropic is used; force one with
 `DISKSAGE_AI_PROVIDER=anthropic|openrouter`.
 
-The AI's reasoning text follows your system locale (`$LANG`), or set it
-explicitly — `DISKSAGE_LANG=ja disksage scan --ai` for Japanese, `=en` for
-English. (Report headings stay English for now.)
+### Report language
+
+The Markdown report is localized. It follows your system locale (`$LANG`), or
+set it explicitly:
+
+```bash
+DISKSAGE_LANG=ja disksage scan        # 日本語レポート（--ai なしでも全文日本語）
+DISKSAGE_LANG=en disksage scan        # English
+```
+
+Japanese is fully built in (headings, findings, actions, AI section, next
+steps). Other language codes localize the AI reasoning text; report scaffolding
+falls back to English. CLI messages and `--help` stay English for now.
 
 **What's sent, and what isn't:**
 
