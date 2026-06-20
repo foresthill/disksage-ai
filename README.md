@@ -57,11 +57,57 @@ No dependencies beyond Bash + Python 3 (pre-installed on macOS).
 
 ```bash
 disksage scan              # Scan known heavy hitters, output Markdown report
-disksage scan --ai         # (v0.2) Use Claude API for contextual judgment
+disksage scan --ai         # Add a Claude AI assessment per finding (BYOK)
+disksage scan --quick      # Skip the $HOME flow-type pass (no TCC dialogs)
 disksage snapshot          # Record current disk usage (for trend tracking)
 disksage trend             # Show disk usage history over time
 disksage help              # See all commands
 ```
+
+### AI mode (`--ai`)
+
+`--ai` adds a contextual assessment from Claude to every finding — *safe to
+delete*, *archive then delete*, *review first*, or *keep* — with a one-line
+reason. It's **bring-your-own-key**, and works with either **Anthropic direct**
+or **OpenRouter** (both speak the Anthropic Messages API).
+
+```bash
+# Option A — Anthropic direct (default model: claude-opus-4-8)
+export ANTHROPIC_API_KEY=sk-ant-...      # https://console.anthropic.com/
+disksage scan --ai
+
+# Option B — OpenRouter (default model: anthropic/claude-opus-4.8)
+export OPENROUTER_API_KEY=sk-or-...      # https://openrouter.ai/keys
+disksage scan --ai
+
+# Non-interactive (e.g. cron): skip the send-confirmation prompt
+disksage scan --ai --yes
+
+# Use a cheaper/faster model
+DISKSAGE_MODEL=claude-haiku-4-5            disksage scan --ai   # Anthropic
+DISKSAGE_MODEL=anthropic/claude-haiku-4.5 disksage scan --ai   # OpenRouter
+```
+
+If both keys are set, Anthropic is used; force one with
+`DISKSAGE_AI_PROVIDER=anthropic|openrouter`.
+
+The AI's reasoning text follows your system locale (`$LANG`), or set it
+explicitly — `DISKSAGE_LANG=ja disksage scan --ai` for Japanese, `=en` for
+English. (Report headings stay English for now.)
+
+**What's sent, and what isn't:**
+
+- Paths are **masked** first: your username (`/Users/you/…` → `~/…`) and any
+  folder *you* named (`~/Documents/Acme/Q3/…` → `~/Documents/<dir1>/<dir2>/…`)
+  are anonymized. Known tool/vendor locations (`Library`, `iMobie`, `.ollama`,
+  `node_modules`, …) are kept so the model can still judge accurately.
+- Only the masked path, size, and DiskSage's own one-line description are sent.
+  **File contents are never read or transmitted.**
+- Before anything leaves your machine, DiskSage prints the **exact masked
+  payload** and asks you to confirm. The report you get back shows the *real*
+  local paths (for your eyes only); only the masked form was sent.
+- If the key is missing or the request fails, the standard offline report is
+  still produced.
 
 ### Track "sudden growth" events
 
@@ -100,7 +146,7 @@ Patterns are declarative JSON — community contributions welcome. See [CONTRIBU
 ## Roadmap
 
 - [x] **v0.1** — Bash CLI, 10 bundled patterns, Markdown report, snapshot/trend
-- [ ] **v0.2** — Claude API integration (BYOK), context-aware judgments
+- [x] **v0.2** — Claude API integration (BYOK), context-aware judgments (`--ai`)
 - [ ] **v0.3** — Rust core rewrite for speed + Windows support
 - [ ] **v0.4** — Tauri-based GUI (Tinder-style cards for approval)
 - [ ] **v0.5** — Background watcher, Sudden Growth Detector
@@ -138,6 +184,14 @@ Filesystem       Size    Used   Avail   Capacity
 - **Code / Code Cache: 680 MB** — Safe to delete (will be regenerated)
 - **Google / GoogleUpdater cache: 670 MB** — Safe to delete
 
+## 🤖 AI Assessment   (only with --ai)
+_Contextual judgment from Claude. Metadata only was sent; you decide._
+
+- 🟡 **Archive, then delete** (high confidence) — iPhone backup: 39.2 GB (BROKEN: no Manifest.db)
+  - AI reasoning: Without Manifest.db this backup can't be restored, but copy out any wanted photos before reclaiming the space.
+- 🟢 **Safe to delete** (high confidence) — Claude / Cache: 1.2 GB
+  - AI reasoning: Application cache, regenerated automatically on next launch.
+
 ## 📈 Recently Grown Files (Flow-type, last 30 days)
 8.9G  ~/.ollama/models/blobs/sha256-4c27...
 7.7G  ~/Library/Application Support/Claude/vm_bundles/claudevm.bundle/rootfs.img
@@ -153,7 +207,8 @@ Filesystem       Size    Used   Avail   Capacity
 ## Privacy & Data
 
 - **Without `--ai`**: 100% offline. No network calls. Nothing leaves your machine.
-- **With `--ai`** (v0.2+): Only **filenames, paths, and metadata** are sent to Claude API. **File contents are never uploaded.** Your API key is stored in macOS Keychain / Linux secret storage, not plaintext.
+- **With `--ai`**: Only **masked paths, sizes, and DiskSage's own descriptions** are sent to the Claude API. Paths are anonymized first (username and your own folder names removed; known tool/vendor names kept). **File contents are never read or uploaded.** You see the exact masked payload and confirm before anything is sent.
+- **API key**: bring-your-own-key via `ANTHROPIC_API_KEY` (Anthropic direct) or `OPENROUTER_API_KEY` (OpenRouter). DiskSage never writes your key to disk. (OS keychain integration is on the roadmap.)
 - **Snapshots** (trend data) are stored locally in `~/.disksage/trends/`.
 
 ---
