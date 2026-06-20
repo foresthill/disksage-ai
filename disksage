@@ -446,10 +446,9 @@ render_findings_section() {
 }
 
 render_flow_type_section() {
+  local rows="$1"   # pre-computed by cmd_scan (avoids walking $HOME twice)
   echo
   echo "## $(t h_flow)"
-  local rows
-  rows=$(find_flow_type_files)
   if [[ -z "$rows" ]]; then
     echo
     echo "$(t flow_none)"
@@ -477,6 +476,7 @@ render_report() {
   local include_flow="${3:-true}"
   local ai_file="${4:-}"
   local ai_model="${5:-}"
+  local flow_rows="${6:-}"
   local total_findings
   total_findings=$(wc -l < "$findings_file" | tr -d ' ')
   {
@@ -501,7 +501,7 @@ render_report() {
       render_ai_section "$findings_file" "$ai_file" "$ai_model"
     fi
     if [[ "$include_flow" == "true" ]]; then
-      render_flow_type_section
+      render_flow_type_section "$flow_rows"
     else
       echo
       echo "## $(t h_flow_plain)"
@@ -519,6 +519,318 @@ render_report() {
     echo "---"
     echo "$(t footer "$VERSION")"
   } > "$out"
+}
+
+# Render a self-contained, styled HTML report (no external assets — opens
+# offline, double-clickable). Reuses the same findings/AI data and the t()
+# catalog, so it's localized like the Markdown report.
+render_html() {
+  local findings_file="$1"
+  local ai_file="$2"
+  local ai_model="$3"
+  local out="$4"
+  local include_flow="$5"
+  local flow_rows="$6"
+
+  # Resolve the localized UI chrome via t() into a key<TAB>value file the
+  # Python renderer reads (keeps all i18n in the catalog).
+  local labels_file key
+  labels_file=$(mktemp)
+  {
+    for key in title h_disk h_findings no_findings \
+               sev_high sev_medium sev_low sev_safe sev_info \
+               lbl_path lbl_size lbl_action h_flow flow_none \
+               h_flow_plain flow_skipped h_next next1 next2 next3 next4; do
+      printf '%s\t%s\n' "$key" "$(t "$key")"
+    done
+    printf '%s\t%s\n' "generated_line" "$(t generated "$(date '+%Y-%m-%d %H:%M:%S')")"
+    printf '%s\t%s\n' "footer_line" "$(t footer "$VERSION")"
+  } > "$labels_file"
+
+  local df_lines
+  df_lines=$(df -h 2>/dev/null | awk 'NR==1 || $1 ~ /^\/dev\//')
+
+  FINDINGS_FILE="$findings_file" AI_FILE="$ai_file" LABELS_FILE="$labels_file" \
+  MODEL="$ai_model" DS_LANG="$DS_LANG" HOMEDIR="$HOME" \
+  INCLUDE_FLOW="$include_flow" DF_LINES="$df_lines" FLOW_ROWS="$flow_rows" \
+  python3 <<'PYEOF' > "$out"
+import os, html
+
+home = os.environ["HOMEDIR"]
+ja = (os.environ.get("DS_LANG", "en") == "ja")
+model = os.environ.get("MODEL", "")
+include_flow = os.environ.get("INCLUDE_FLOW") == "true"
+
+def esc(s):
+    return html.escape(str(s), quote=True)
+
+def human(n):
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return "0 B"
+    while n >= 1024 and i < len(units) - 1:
+        n /= 1024
+        i += 1
+    return ("%d %s" % (int(n), units[i])) if i == 0 else ("%.1f %s" % (n, units[i]))
+
+def tildify(p):
+    if p == home:
+        return "~"
+    if p.startswith(home + "/"):
+        return "~" + p[len(home):]
+    return p
+
+L = {}
+with open(os.environ["LABELS_FILE"]) as f:
+    for line in f:
+        line = line.rstrip("\n")
+        if "\t" in line:
+            k, v = line.split("\t", 1)
+            L[k] = v
+
+def lbl(k):
+    return L.get(k, k)
+
+# strip a leading emoji+space from heading text for cleaner HTML headings? keep as-is.
+
+findings = []
+with open(os.environ["FINDINGS_FILE"]) as f:
+    for i, line in enumerate(f):
+        line = line.rstrip("\n")
+        if not line:
+            continue
+        p = line.split("\t")
+        if len(p) < 6:
+            continue
+        findings.append({"i": i, "severity": p[0], "pattern": p[1],
+                         "path": p[2], "size": p[3], "desc": p[4], "action": p[5]})
+
+by_i = {x["i"]: x for x in findings}
+
+judg = {}
+ai_path = os.environ.get("AI_FILE", "")
+if ai_path and os.path.exists(ai_path):
+    with open(ai_path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            p = line.split("\t")
+            if len(p) < 4:
+                continue
+            try:
+                judg[int(p[0])] = {"rec": p[1], "conf": p[2], "reason": p[3]}
+            except ValueError:
+                pass
+
+SEV = [("high", "#d1242f"), ("medium", "#bf8700"), ("low", "#0969da"),
+       ("safe", "#1a7f37"), ("info", "#6e7781")]
+SEV_COLOR = dict(SEV)
+
+def max_size():
+    m = 0
+    for x in findings:
+        try:
+            m = max(m, int(x["size"]))
+        except ValueError:
+            pass
+    return m or 1
+
+MAXSZ = max_size()
+
+# AI recommendation labels/colors
+if ja:
+    REC_LBL = {"safe_to_delete": "削除して安全", "archive_then_delete": "退避してから削除",
+               "review_first": "要確認", "keep": "保持"}
+    CONF = {"high": "高", "medium": "中", "low": "低"}
+    ai_header = "🤖 AI 判定"
+    ai_disc = ("Claude（%s）による文脈判定。マスク済みメタデータのみ送信。"
+               "下のパスは実際のローカルパス（あなただけ）。提案のみ・判断はあなたです。" % esc(model))
+    ai_path_l, ai_size_l, ai_reason_l, conf_word = "パス", "サイズ", "AI の判定理由", "確信度"
+    ai_none = "AI の判定は返りませんでした。"
+else:
+    REC_LBL = {"safe_to_delete": "Safe to delete", "archive_then_delete": "Archive, then delete",
+               "review_first": "Review first", "keep": "Keep"}
+    CONF = {"high": "high", "medium": "medium", "low": "low"}
+    ai_header = "🤖 AI Assessment"
+    ai_disc = ("Contextual judgment from Claude (%s). Masked metadata only was sent. "
+               "Paths below are the real local paths (for your eyes only). "
+               "Suggestions only; you decide." % esc(model))
+    ai_path_l, ai_size_l, ai_reason_l, conf_word = "Path", "Size", "AI reasoning", "confidence"
+    ai_none = "No AI judgments were returned."
+
+REC_COLOR = {"safe_to_delete": "#1a7f37", "archive_then_delete": "#bf8700",
+             "review_first": "#d4761a", "keep": "#d1242f"}
+REC_ORDER = ["keep", "review_first", "archive_then_delete", "safe_to_delete"]
+
+def cap_color(pct):
+    return "#d1242f" if pct >= 85 else ("#bf8700" if pct >= 70 else "#1a7f37")
+
+out = []
+def w(s=""):
+    out.append(s)
+
+w("<!doctype html><html lang='%s'><head><meta charset='utf-8'>" % ("ja" if ja else "en"))
+w("<meta name='viewport' content='width=device-width, initial-scale=1'>")
+w("<title>%s</title>" % esc(lbl("title")))
+w("""<style>
+:root{--fg:#1f2328;--muted:#6e7781;--bg:#fff;--line:#d0d7de;--code:#f6f8fa}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+ color:var(--fg);background:#f6f8fa;margin:0;padding:24px;line-height:1.5}
+.wrap{max-width:880px;margin:0 auto;background:var(--bg);border:1px solid var(--line);
+ border-radius:12px;padding:28px 32px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+h1{font-size:24px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.meta{color:var(--muted);font-size:13px;margin-bottom:8px}
+code,.path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+ background:var(--code);padding:1px 5px;border-radius:5px;word-break:break-all}
+.vol{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px}
+.vol .name{flex:0 0 auto;color:var(--muted);min-width:120px;font-family:ui-monospace,Menlo,monospace}
+.track{flex:1;height:10px;background:var(--code);border-radius:6px;overflow:hidden}
+.fill{height:100%}
+.vol .num{flex:0 0 auto;color:var(--muted);min-width:120px;text-align:right}
+.card{border:1px solid var(--line);border-left-width:4px;border-radius:8px;
+ padding:12px 14px;margin:10px 0;background:#fff}
+.card .title{font-weight:600;margin-bottom:6px}
+.row{font-size:13px;color:var(--fg);margin:3px 0}
+.row .k{color:var(--muted);display:inline-block;min-width:54px}
+.szbar{height:6px;background:var(--code);border-radius:4px;overflow:hidden;margin-top:6px}
+.szfill{height:100%;background:var(--line)}
+.badge{display:inline-block;font-size:11px;font-weight:700;color:#fff;
+ padding:2px 8px;border-radius:999px;vertical-align:middle}
+.empty{color:var(--muted);font-style:italic}
+ol{padding-left:20px}ol li{margin:4px 0}
+footer{color:var(--muted);font-size:12px;margin-top:24px;border-top:1px solid var(--line);padding-top:12px}
+</style></head><body><div class='wrap'>""")
+
+w("<h1>%s</h1>" % esc(lbl("title")))
+gl = lbl("generated_line").strip("_")
+w("<div class='meta'>%s</div>" % esc(gl))
+
+# Disk usage bars
+w("<h2>%s</h2>" % esc(lbl("h_disk")))
+df_lines = os.environ.get("DF_LINES", "").splitlines()
+vols = []
+for ln in df_lines[1:]:
+    parts = ln.split()
+    if not parts or not parts[0].startswith("/dev/"):
+        continue
+    pct = 0
+    cap = ""
+    for tok in parts[1:]:
+        if tok.endswith("%"):
+            cap = tok
+            try:
+                pct = int(tok.rstrip("%"))
+            except ValueError:
+                pct = 0
+            break
+    size = parts[1] if len(parts) > 1 else ""
+    used = parts[2] if len(parts) > 2 else ""
+    mount = parts[-1]
+    vols.append((mount, used, size, cap, pct))
+for mount, used, size, cap, pct in vols:
+    w("<div class='vol'><span class='name'>%s</span>"
+      "<span class='track'><span class='fill' style='width:%d%%;background:%s'></span></span>"
+      "<span class='num'>%s / %s &middot; %s</span></div>"
+      % (esc(mount), min(pct, 100), cap_color(pct), esc(used), esc(size), esc(cap)))
+
+# Findings
+w("<h2>%s</h2>" % esc(lbl("h_findings")))
+if not findings:
+    w("<p class='empty'>%s</p>" % esc(lbl("no_findings").strip("_")))
+else:
+    for sev, color in SEV:
+        group = [x for x in findings if x["severity"] == sev]
+        if not group:
+            continue
+        w("<h3 style='font-size:14px;margin:18px 0 4px;color:%s'>%s (%d)</h3>"
+          % (color, esc(lbl("sev_" + sev)), len(group)))
+        group.sort(key=lambda x: -(int(x["size"]) if x["size"].isdigit() else 0))
+        for x in group:
+            w("<div class='card' style='border-left-color:%s'>" % color)
+            w("<div class='title'>%s</div>" % esc(x["desc"]))
+            if x["path"] and x["path"] != "/":
+                w("<div class='row'><span class='k'>%s</span> <span class='path'>%s</span></div>"
+                  % (esc(lbl("lbl_path")), esc(tildify(x["path"]))))
+            try:
+                sz = int(x["size"])
+            except ValueError:
+                sz = 0
+            if sz > 0:
+                w("<div class='row'><span class='k'>%s</span> %s</div>"
+                  % (esc(lbl("lbl_size")), esc(human(sz))))
+                w("<div class='szbar'><span class='szfill' style='width:%.1f%%;background:%s'></span></div>"
+                  % (100.0 * sz / MAXSZ, color))
+            if x["action"]:
+                w("<div class='row'><span class='k'>%s</span> %s</div>"
+                  % (esc(lbl("lbl_action")), esc(x["action"])))
+            w("</div>")
+
+# AI Assessment
+if judg:
+    w("<h2>%s</h2>" % esc(ai_header))
+    w("<p class='meta'>%s</p>" % ai_disc)
+    items = [(i, by_i[i], judg[i]) for i in by_i if i in judg]
+    def sk(t):
+        _i, fi, ju = t
+        r = REC_ORDER.index(ju["rec"]) if ju["rec"] in REC_ORDER else 99
+        s = int(fi["size"]) if fi["size"].isdigit() else 0
+        return (r, -s)
+    items.sort(key=sk)
+    for _i, fi, ju in items:
+        rc = REC_COLOR.get(ju["rec"], "#6e7781")
+        w("<div class='card' style='border-left-color:%s'>" % rc)
+        w("<div class='title'><span class='badge' style='background:%s'>%s</span> "
+          "<span style='color:var(--muted);font-size:12px'>%s: %s</span></div>"
+          % (rc, esc(REC_LBL.get(ju["rec"], ju["rec"])), esc(conf_word),
+             esc(CONF.get(ju["conf"], ju["conf"]))))
+        w("<div class='row'>%s</div>" % esc(fi["desc"]))
+        if fi["path"] and fi["path"] != "/":
+            w("<div class='row'><span class='k'>%s</span> <span class='path'>%s</span></div>"
+              % (esc(ai_path_l), esc(tildify(fi["path"]))))
+        if fi["size"].isdigit() and int(fi["size"]) > 0:
+            w("<div class='row'><span class='k'>%s</span> %s</div>"
+              % (esc(ai_size_l), esc(human(fi["size"]))))
+        w("<div class='row'><span class='k'>%s</span> %s</div>"
+          % (esc(ai_reason_l), esc(ju["reason"])))
+        w("</div>")
+
+# Flow-type
+w("<h2>%s</h2>" % esc(lbl("h_flow") if include_flow else lbl("h_flow_plain")))
+if not include_flow:
+    w("<p class='empty'>%s</p>" % esc(lbl("flow_skipped").strip("_")))
+else:
+    rows = [r for r in os.environ.get("FLOW_ROWS", "").splitlines() if r.strip()]
+    if not rows:
+        w("<p class='empty'>%s</p>" % esc(lbl("flow_none").strip("_")))
+    else:
+        for r in rows:
+            if "\t" not in r:
+                continue
+            sz, p = r.split("\t", 1)
+            w("<div class='row'><code>%s</code> &nbsp; %s</div>"
+              % (esc(human(sz)), esc(tildify(p))))
+
+# Next steps
+w("<h2>%s</h2>" % esc(lbl("h_next")))
+w("<ol>")
+for k in ("next1", "next2", "next3", "next4"):
+    item = lbl(k).replace("**", "")
+    w("<li>%s</li>" % esc(item))
+w("</ol>")
+
+w("<footer>%s</footer>" % esc(lbl("footer_line").strip("_")))
+w("</div></body></html>")
+
+print("\n".join(out))
+PYEOF
+
+  rm -f "$labels_file"
 }
 
 # ───────────────────────────────────────────────────────────────
@@ -1086,11 +1398,13 @@ cmd_scan() {
   local use_ai=false
   local quick=false
   local assume_yes=false
+  local want_html=false
   while (( $# > 0 )); do
     case "$1" in
       --ai)           use_ai=true ;;
       --quick)        quick=true ;;
       -y|--yes)       assume_yes=true ;;
+      --html)         want_html=true ;;
       -h|--help)      cmd_help scan; return 0 ;;
       *)              warn "scan: ignoring unknown argument '$1'" ;;
     esac
@@ -1147,14 +1461,28 @@ EOF
     run_ai_analysis "$findings_file" "$ai_file" "$assume_yes" || true
   fi
 
-  local out include_flow
-  out="$SCANS_DIR/$(filename_now).md"
+  local out include_flow flow_rows stamp
+  stamp="$(filename_now)"
   include_flow="true"
   $quick && include_flow="false"
-  render_report "$findings_file" "$out" "$include_flow" "$ai_file" "$ai_model"
 
+  # Compute the flow-type rows once and share with both renderers (avoids
+  # walking $HOME twice when --html is also requested).
+  flow_rows=""
+  [[ "$include_flow" == "true" ]] && flow_rows="$(find_flow_type_files)"
+
+  out="$SCANS_DIR/$stamp.md"
+  render_report "$findings_file" "$out" "$include_flow" "$ai_file" "$ai_model" "$flow_rows"
   info "Report saved: $(tildify "$out")"
-  printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$out")"
+
+  if $want_html; then
+    local html_out="$SCANS_DIR/$stamp.html"
+    render_html "$findings_file" "$ai_file" "$ai_model" "$html_out" "$include_flow" "$flow_rows"
+    info "HTML report saved: $(tildify "$html_out")"
+    printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$html_out")"
+  else
+    printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$out")"
+  fi
 }
 
 cmd_snapshot() {
@@ -1262,7 +1590,7 @@ cmd_help() {
   case "$sub" in
     scan)
       cat <<EOF
-Usage: disksage scan [--quick] [--ai] [--yes]
+Usage: disksage scan [--quick] [--ai] [--yes] [--html]
 
 Scan known heavy-hitter locations and write a Markdown report to
   $SCANS_DIR/
@@ -1271,6 +1599,9 @@ Options:
   --quick   Skip the flow-type pass that walks \$HOME for large recent
             files. Faster, and avoids macOS permission dialogs for
             TCC-protected apps (Photos, Messages, Mail, …).
+  --html    Also write a self-contained, styled HTML report next to the
+            Markdown one (color-coded severity, AI badges, disk-usage bars).
+            Opens offline — just double-click it. Localized like the report.
   --ai      Add a contextual AI assessment of each finding via the Claude
             API. ${C_BOLD}Masked metadata only${C_RESET} is sent: paths are anonymized
             (username and your own folder names removed; known tool/vendor
@@ -1328,6 +1659,7 @@ Commands:
                     --quick omits the flow-type pass (no TCC dialogs).
        [--ai]       Add a Claude AI assessment (BYOK; metadata only).
                     See 'disksage help scan' for setup.
+       [--html]     Also write a styled, self-contained HTML report.
   snapshot          Record current disk usage for trend tracking.
   trend             Show disk usage history over time.
   version           Print version.

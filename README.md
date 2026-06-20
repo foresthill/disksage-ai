@@ -58,10 +58,23 @@ No dependencies beyond Bash + Python 3 (pre-installed on macOS).
 ```bash
 disksage scan              # Scan known heavy hitters, output Markdown report
 disksage scan --ai         # Add a Claude AI assessment per finding (BYOK)
+disksage scan --html       # Also write a styled, self-contained HTML report
 disksage scan --quick      # Skip the $HOME flow-type pass (no TCC dialogs)
 disksage snapshot          # Record current disk usage (for trend tracking)
 disksage trend             # Show disk usage history over time
 disksage help              # See all commands
+```
+
+### HTML report (`--html`)
+
+`--html` writes a styled, **self-contained** `.html` next to the Markdown report
+(color-coded severity cards, AI recommendation badges, and disk-usage bars). No
+external assets — open it offline by double-clicking. Localized like the report
+(`DISKSAGE_LANG`). A lightweight step toward the planned GUI.
+
+```bash
+disksage scan --ai --html
+open ~/.disksage/scans/*.html
 ```
 
 ### AI mode (`--ai`)
