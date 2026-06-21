@@ -60,10 +60,28 @@ disksage scan              # Scan known heavy hitters, output Markdown report
 disksage scan --ai         # Add a Claude AI assessment per finding (BYOK)
 disksage scan --html       # Also write a styled, self-contained HTML report
 disksage scan --quick      # Skip the $HOME flow-type pass (no TCC dialogs)
+disksage serve             # Scan + open the HTML report as a local web UI
 disksage snapshot          # Record current disk usage (for trend tracking)
 disksage trend             # Show disk usage history over time
 disksage help              # See all commands
 ```
+
+### Local web UI (`serve`)
+
+`disksage serve` runs a scan, then serves the HTML report at
+`http://127.0.0.1:8765` and opens your browser. A **Re-scan** button re-runs the
+scan and refreshes the page. It's the lightest step toward a GUI — bound to
+`127.0.0.1` only (not reachable from the network), Python standard library only.
+
+```bash
+disksage serve                 # full scan, serve, open browser
+disksage serve --quick         # skip the slow $HOME flow-type pass
+disksage serve --ai --yes      # include the AI assessment (--yes: pre-confirm sending)
+disksage serve --port 9000     # custom port (or DISKSAGE_PORT)
+```
+
+Press Ctrl-C to stop. The first scan (and each Re-scan) takes as long as a normal
+scan — on machines with large `node_modules` trees that can be ~30s.
 
 ### HTML report (`--html`)
 
