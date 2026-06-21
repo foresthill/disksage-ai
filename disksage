@@ -680,7 +680,7 @@ w("""<style>
 :root{--fg:#1f2328;--muted:#6e7781;--bg:#fff;--line:#d0d7de;--code:#f6f8fa}
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
- color:var(--fg);background:#f6f8fa;margin:0;padding:24px;line-height:1.5}
+ color:var(--fg);background:#f6f8fa;margin:0;padding:24px;line-height:1.5;overflow-wrap:break-word}
 .wrap{max-width:880px;margin:0 auto;background:var(--bg);border:1px solid var(--line);
  border-radius:12px;padding:28px 32px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 h1{font-size:24px;margin:0 0 4px}
@@ -688,11 +688,12 @@ h2{font-size:16px;margin:28px 0 12px;padding-bottom:6px;border-bottom:1px solid 
 .meta{color:var(--muted);font-size:13px;margin-bottom:8px}
 code,.path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
  background:var(--code);padding:1px 5px;border-radius:5px;word-break:break-all}
-.vol{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px}
-.vol .name{flex:0 0 auto;color:var(--muted);min-width:120px;font-family:ui-monospace,Menlo,monospace}
-.track{flex:1;height:10px;background:var(--code);border-radius:6px;overflow:hidden}
+.vol{margin:10px 0;font-size:13px}
+.vol .name{display:block;color:var(--muted);font-family:ui-monospace,Menlo,monospace;word-break:break-all;margin-bottom:4px}
+.barrow{display:flex;align-items:center;gap:10px}
+.track{flex:1;min-width:0;height:10px;background:var(--code);border-radius:6px;overflow:hidden}
 .fill{height:100%}
-.vol .num{flex:0 0 auto;color:var(--muted);min-width:120px;text-align:right}
+.vol .num{flex:0 0 auto;color:var(--muted);white-space:nowrap}
 .card{border:1px solid var(--line);border-left-width:4px;border-radius:8px;
  padding:12px 14px;margin:10px 0;background:#fff}
 .card .title{font-weight:600;margin-bottom:6px}
@@ -735,8 +736,9 @@ for ln in df_lines[1:]:
     vols.append((mount, used, size, cap, pct))
 for mount, used, size, cap, pct in vols:
     w("<div class='vol'><span class='name'>%s</span>"
+      "<div class='barrow'>"
       "<span class='track'><span class='fill' style='width:%d%%;background:%s'></span></span>"
-      "<span class='num'>%s / %s &middot; %s</span></div>"
+      "<span class='num'>%s / %s &middot; %s</span></div></div>"
       % (esc(mount), min(pct, 100), cap_color(pct), esc(used), esc(size), esc(cap)))
 
 # Findings
