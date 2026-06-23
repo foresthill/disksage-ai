@@ -680,7 +680,7 @@ w("""<style>
 :root{--fg:#1f2328;--muted:#6e7781;--bg:#fff;--line:#d0d7de;--code:#f6f8fa}
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
- color:var(--fg);background:#f6f8fa;margin:0;padding:24px;line-height:1.5}
+ color:var(--fg);background:#f6f8fa;margin:0;padding:24px;line-height:1.5;overflow-wrap:break-word}
 .wrap{max-width:880px;margin:0 auto;background:var(--bg);border:1px solid var(--line);
  border-radius:12px;padding:28px 32px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 h1{font-size:24px;margin:0 0 4px}
@@ -688,11 +688,12 @@ h2{font-size:16px;margin:28px 0 12px;padding-bottom:6px;border-bottom:1px solid 
 .meta{color:var(--muted);font-size:13px;margin-bottom:8px}
 code,.path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
  background:var(--code);padding:1px 5px;border-radius:5px;word-break:break-all}
-.vol{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px}
-.vol .name{flex:0 0 auto;color:var(--muted);min-width:120px;font-family:ui-monospace,Menlo,monospace}
-.track{flex:1;height:10px;background:var(--code);border-radius:6px;overflow:hidden}
+.vol{margin:10px 0;font-size:13px}
+.vol .name{display:block;color:var(--muted);font-family:ui-monospace,Menlo,monospace;word-break:break-all;margin-bottom:4px}
+.barrow{display:flex;align-items:center;gap:10px}
+.track{flex:1;min-width:0;height:10px;background:var(--code);border-radius:6px;overflow:hidden}
 .fill{height:100%}
-.vol .num{flex:0 0 auto;color:var(--muted);min-width:120px;text-align:right}
+.vol .num{flex:0 0 auto;color:var(--muted);white-space:nowrap}
 .card{border:1px solid var(--line);border-left-width:4px;border-radius:8px;
  padding:12px 14px;margin:10px 0;background:#fff}
 .card .title{font-weight:600;margin-bottom:6px}
@@ -735,8 +736,9 @@ for ln in df_lines[1:]:
     vols.append((mount, used, size, cap, pct))
 for mount, used, size, cap, pct in vols:
     w("<div class='vol'><span class='name'>%s</span>"
+      "<div class='barrow'>"
       "<span class='track'><span class='fill' style='width:%d%%;background:%s'></span></span>"
-      "<span class='num'>%s / %s &middot; %s</span></div>"
+      "<span class='num'>%s / %s &middot; %s</span></div></div>"
       % (esc(mount), min(pct, 100), cap_color(pct), esc(used), esc(size), esc(cap)))
 
 # Findings
@@ -1485,6 +1487,137 @@ EOF
   fi
 }
 
+cmd_serve() {
+  ensure_dirs
+  resolve_lang
+  local use_ai=false quick=false assume_yes=false port="${DISKSAGE_PORT:-8765}"
+  while (( $# > 0 )); do
+    case "$1" in
+      --ai)        use_ai=true ;;
+      --quick)     quick=true ;;
+      -y|--yes)    assume_yes=true ;;
+      -p|--port)   shift; port="${1:-8765}" ;;
+      --port=*)    port="${1#--port=}" ;;
+      -h|--help)   cmd_help serve; return 0 ;;
+      *)           warn "serve: ignoring unknown argument '$1'" ;;
+    esac
+    shift
+  done
+
+  command -v python3 >/dev/null 2>&1 || die "serve requires python3."
+
+  # These flags drive both the initial scan and every browser-triggered re-scan.
+  local -a scan_flags=(scan --html)
+  $quick && scan_flags+=(--quick)
+  if $use_ai; then
+    if $assume_yes; then
+      scan_flags+=(--ai --yes)
+    else
+      warn "serve runs non-interactively; --ai needs --yes to confirm sending."
+      warn "Continuing WITHOUT AI. Re-run as: disksage serve --ai --yes"
+    fi
+  fi
+
+  # Absolute path to this script, so the server can re-run scans on demand.
+  local self
+  self="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)/$(basename "$0")"
+  [[ -x "$self" ]] || self="$(command -v disksage 2>/dev/null || echo "$self")"
+
+  info "Running initial scan…"
+  "$self" "${scan_flags[@]}" >&2 || warn "initial scan reported an issue (continuing)."
+
+  info "Serving DiskSage at http://127.0.0.1:$port  (Ctrl-C to stop)"
+
+  SELF="$self" SERVE_SCANS_DIR="$SCANS_DIR" PORT="$port" SERVE_LANG="$DS_LANG" \
+  SCAN_FLAGS="${scan_flags[*]}" python3 <<'PYEOF'
+import os, glob, http.server, socketserver, subprocess, shlex, threading, webbrowser, urllib.parse
+
+scans_dir = os.environ["SERVE_SCANS_DIR"]
+self_bin = os.environ["SELF"]
+port = int(os.environ.get("PORT", "8765"))
+ja = os.environ.get("SERVE_LANG", "en") == "ja"
+scan_flags = shlex.split(os.environ.get("SCAN_FLAGS", "scan --html"))
+
+rescan_label = "再スキャン" if ja else "Re-scan"
+scanning_label = "スキャン中…" if ja else "Scanning…"
+empty_msg = ("まだレポートがありません。「再スキャン」を押してください。"
+             if ja else "No report yet. Click Re-scan.")
+
+def newest_html():
+    files = glob.glob(os.path.join(scans_dir, "*.html"))
+    return max(files, key=os.path.getmtime) if files else None
+
+TOOLBAR = (
+    "<div style=\"position:sticky;top:0;z-index:10;background:#1f2328;color:#fff;"
+    "margin:-28px -32px 16px;padding:12px 32px;border-radius:12px 12px 0 0;"
+    "display:flex;justify-content:space-between;align-items:center\">"
+    "<strong>🩺 DiskSage</strong>"
+    "<form method=\"post\" action=\"/rescan\" style=\"margin:0\" "
+    "onsubmit=\"this.querySelector('button').textContent='%s';this.querySelector('button').disabled=true\">"
+    "<button style=\"background:#1a7f37;color:#fff;border:0;padding:8px 16px;"
+    "border-radius:8px;font-size:14px;cursor:pointer\">🔄 %s</button>"
+    "</form></div>"
+) % (scanning_label, rescan_label)
+
+def page():
+    f = newest_html()
+    if not f:
+        return ("<!doctype html><meta charset=utf-8>"
+                "<body style='font-family:sans-serif;padding:40px'>"
+                + TOOLBAR + "<p>" + empty_msg + "</p></body>").encode("utf-8")
+    with open(f, encoding="utf-8") as h:
+        doc = h.read()
+    marker = "<div class='wrap'>"
+    if marker in doc:
+        doc = doc.replace(marker, marker + TOOLBAR, 1)
+    return doc.encode("utf-8")
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def _send(self, code, body=b"", ctype="text/html; charset=utf-8", headers=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def do_GET(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path in ("/", "/index.html"):
+            self._send(200, page())
+        elif path == "/favicon.ico":
+            self._send(204)
+        else:
+            self._send(404, b"not found")
+
+    def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/rescan":
+            subprocess.run([self_bin, *scan_flags], check=False)
+            self._send(303, b"", headers={"Location": "/"})
+        else:
+            self._send(404, b"not found")
+
+    def log_message(self, *_a):
+        pass  # keep the terminal quiet
+
+class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+httpd = Server(("127.0.0.1", port), Handler)
+threading.Timer(0.6, lambda: webbrowser.open("http://127.0.0.1:%d/" % port)).start()
+try:
+    httpd.serve_forever()
+except KeyboardInterrupt:
+    pass
+finally:
+    httpd.server_close()
+PYEOF
+}
+
 cmd_snapshot() {
   ensure_dirs
   local now_iso filename df_out
@@ -1630,6 +1763,26 @@ AI mode (BYOK — bring your own key). Set ONE of:
 Reports are never destructive. DiskSage only suggests.
 EOF
       ;;
+    serve)
+      cat <<EOF
+Usage: disksage serve [--quick] [--ai --yes] [--port N]
+
+Run a scan, then serve the styled HTML report as a tiny local web UI at
+  http://127.0.0.1:<port>   (default port 8765; \$DISKSAGE_PORT or --port to change)
+
+Your browser opens automatically. A ${C_BOLD}Re-scan${C_RESET} button re-runs the scan and
+refreshes the page. Bound to 127.0.0.1 only — not reachable from the network.
+Press Ctrl-C to stop.
+
+Options:
+  --quick   Skip the flow-type pass (no TCC dialogs), same as 'scan --quick'.
+  --ai      Include the AI assessment. Because serve is non-interactive, this
+            requires --yes (you pre-confirm sending masked metadata each scan).
+  --port N  Port to listen on (default 8765).
+
+Requires python3 (standard library only — no extra dependencies).
+EOF
+      ;;
     snapshot)
       cat <<EOF
 Usage: disksage snapshot
@@ -1660,6 +1813,8 @@ Commands:
        [--ai]       Add a Claude AI assessment (BYOK; metadata only).
                     See 'disksage help scan' for setup.
        [--html]     Also write a styled, self-contained HTML report.
+  serve             Scan + serve the HTML report as a local web UI (127.0.0.1)
+                    with a Re-scan button. See 'disksage help serve'.
   snapshot          Record current disk usage for trend tracking.
   trend             Show disk usage history over time.
   version           Print version.
@@ -1684,6 +1839,7 @@ main() {
   (( $# > 0 )) && shift
   case "$cmd" in
     scan)                  cmd_scan "$@" ;;
+    serve)                 cmd_serve "$@" ;;
     snapshot)              cmd_snapshot "$@" ;;
     trend)                 cmd_trend "$@" ;;
     version|--version|-v)  cmd_version ;;

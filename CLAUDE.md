@@ -39,6 +39,7 @@
   - `scan` — 10パターンの肥大箇所を検出、Markdown レポート生成
   - `scan --ai` — Claude API による文脈判定（BYOK、メタデータのみ送信）✅ v0.2 実装済み
   - `scan --quick` — flow-type パスをスキップ（TCC ダイアログ回避）
+  - `serve` — ローカルWeb UI ✅（`disksage serve`：スキャン→`127.0.0.1:8765` でHTML配信→ブラウザ自動オープン、「再スキャン」ボタン=POST `/rescan`。Python標準ライブラリのみ・localhost限定。`cmd_serve` 内に http.server。GUI化(v0.4 Tauri)前の B1ステップ。`--ai` は非対話のため `--yes` 必須。初回/再スキャンは通常スキャン同等の時間（node_modules 大の環境で ~30s）。i18n対応＝ツールバーは DS_LANG で「再スキャン/Re-scan」）
   - `scan --html` — 自己完結HTMLレポート ✅（深刻度カラーカード・AIバッジ・ディスク使用量バー。外部依存なし・オフラインで開ける。`render_html` 内 Python、i18n対応。GUI化(v0.4)前の低コスト視覚化ステップ）。flow-type は `cmd_scan` で一度だけ計算し md/html で共有
   - レポート i18n ✅：`DISKSAGE_LANG`（`$LANG` 自動判定）で日本語レポート全文対応。`t()`/`t_lookup()` + `CATALOG_EN`/`CATALOG_JA`（bash 3.2 互換、連想配列不使用）。見出し・各パターン説明/Action・Next Steps・AI判定欄・フッタを翻訳。CLI/help は英語のまま。日本語以外の言語コードは AI reasoning のみ翻訳し、雛形は英語フォールバック
   - `snapshot` — ディスク使用量記録
