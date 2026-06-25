@@ -1541,6 +1541,9 @@ EOF
     local html_out="$SCANS_DIR/$stamp.html"
     render_html "$findings_file" "$ai_file" "$ai_model" "$html_out" "$include_flow" "$flow_rows"
     info "HTML report saved: $(tildify "$html_out")"
+    # When driven by `serve`, drop a machine-readable sidecar so the local
+    # server has an authoritative whitelist of finding paths for the delete UI.
+    [[ -n "${DISKSAGE_SERVE:-}" ]] && cp "$findings_file" "$SCANS_DIR/$stamp.findings.tsv"
     printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$html_out")"
   else
     printf '\n%sNext:%s open "%s"\n' "$C_BOLD" "$C_RESET" "$(tildify "$out")"
@@ -1584,28 +1587,91 @@ cmd_serve() {
   [[ -x "$self" ]] || self="$(command -v disksage 2>/dev/null || echo "$self")"
 
   info "Running initial scan…"
-  "$self" "${scan_flags[@]}" >&2 || warn "initial scan reported an issue (continuing)."
+  DISKSAGE_SERVE=1 "$self" "${scan_flags[@]}" >&2 || warn "initial scan reported an issue (continuing)."
 
   info "Serving DiskSage at http://127.0.0.1:$port  (Ctrl-C to stop)"
 
   SELF="$self" SERVE_SCANS_DIR="$SCANS_DIR" PORT="$port" SERVE_LANG="$DS_LANG" \
-  SCAN_FLAGS="${scan_flags[*]}" python3 <<'PYEOF'
-import os, glob, http.server, socketserver, subprocess, shlex, threading, webbrowser, urllib.parse
+  SERVE_HOME="$HOME" SCAN_FLAGS="${scan_flags[*]}" python3 <<'PYEOF'
+import os, glob, html, json, http.server, socketserver, subprocess, shlex, threading, webbrowser, urllib.parse
 
 scans_dir = os.environ["SERVE_SCANS_DIR"]
 self_bin = os.environ["SELF"]
+home = os.environ["SERVE_HOME"]
 port = int(os.environ.get("PORT", "8765"))
 ja = os.environ.get("SERVE_LANG", "en") == "ja"
 scan_flags = shlex.split(os.environ.get("SCAN_FLAGS", "scan --html"))
+# Re-scans (and the delete-then-rescan) must also emit the findings sidecar.
+scan_env = {**os.environ, "DISKSAGE_SERVE": "1"}
+
+# Only these patterns are offered for one-click Trash: their finding path IS the
+# thing to delete and is safe/recoverable. Excluded on purpose: electron_cache
+# (path is the app dir, not its cache), docker_raw (risky while Docker runs),
+# node_modules_aggregate (path is ~/Development — would nuke everything),
+# apfs_snapshots and vm_swap (need tmutil / reboot, not Trash).
+DELETABLE = {"iphone_backup", "ollama_models", "xcode_derived_data",
+             "coresimulator_caches", "coresimulator_devices", "ios_devicesupport"}
 
 rescan_label = "再スキャン" if ja else "Re-scan"
 scanning_label = "スキャン中…" if ja else "Scanning…"
 empty_msg = ("まだレポートがありません。「再スキャン」を押してください。"
              if ja else "No report yet. Click Re-scan.")
 
-def newest_html():
-    files = glob.glob(os.path.join(scans_dir, "*.html"))
+def esc(s):
+    return html.escape(str(s), quote=True)
+
+def human(n):
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return "0 B"
+    u = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    while n >= 1024 and i < len(u) - 1:
+        n /= 1024
+        i += 1
+    return ("%d %s" % (int(n), u[i])) if i == 0 else ("%.1f %s" % (n, u[i]))
+
+def tildify(p):
+    if p == home:
+        return "~"
+    if p.startswith(home + "/"):
+        return "~" + p[len(home):]
+    return p
+
+def newest(pat):
+    files = glob.glob(os.path.join(scans_dir, pat))
     return max(files, key=os.path.getmtime) if files else None
+
+def read_findings():
+    f = newest("*.findings.tsv")
+    out = []
+    if not f:
+        return out
+    with open(f, encoding="utf-8") as h:
+        for line in h:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            p = line.split("\t")
+            if len(p) < 6:
+                continue
+            out.append({"sev": p[0], "pid": p[1], "path": p[2], "size": p[3], "desc": p[4]})
+    return out
+
+def deletable():
+    # Whitelist: deletable pattern, under $HOME, and still present on disk.
+    return [fi for fi in read_findings()
+            if fi["pid"] in DELETABLE
+            and fi["path"].startswith(home + "/")
+            and os.path.exists(fi["path"])]
+
+def to_trash(paths):
+    # Move to the macOS Trash via Finder (recoverable). Never rm.
+    items = ", ".join('POSIX file "%s"' % p.replace("\\", "\\\\").replace('"', '\\"')
+                      for p in paths)
+    subprocess.run(["osascript", "-e",
+                    'tell application "Finder" to delete {%s}' % items], check=False)
 
 TOOLBAR = (
     "<div style=\"position:sticky;top:0;z-index:10;background:#1f2328;color:#fff;"
@@ -1619,8 +1685,57 @@ TOOLBAR = (
     "</form></div>"
 ) % (scanning_label, rescan_label)
 
+def delete_panel():
+    items = deletable()
+    if not items:
+        return ""
+    if ja:
+        title = "🗑 ぽちぽち削除（ゴミ箱へ・復元可能）"
+        note = "チェックして「ゴミ箱へ」。ゴミ箱に入るので戻せます。⚠は削除で状態が消える項目。"
+        btn = "選択をゴミ箱へ"
+        m_none, m_safe = "項目を選んでください", "選択した項目をゴミ箱に移します。よろしいですか？"
+        m_risky = "⚠ 選択に『要確認』レベル（削除で状態が消える等）が含まれます。本当に続けますか？"
+    else:
+        title = "🗑 Quick delete (to Trash · recoverable)"
+        note = "Check items, then Move to Trash — recoverable. ⚠ = deleting wipes its state."
+        btn = "Move selected to Trash"
+        m_none, m_safe = "Select at least one item", "Move the selected items to the Trash. Continue?"
+        m_risky = "⚠ Selection includes higher-risk items (deleting wipes their state). Are you sure?"
+    rows = []
+    for fi in items:
+        risky = fi["sev"] != "safe"
+        color = "#d1242f" if risky else "#1a7f37"
+        badge = ("⚠ " + fi["sev"]) if risky else fi["sev"]
+        rows.append(
+            "<label style='display:flex;gap:8px;align-items:flex-start;padding:7px 0;"
+            "border-top:1px solid #eee'>"
+            "<input type='checkbox' name='del' value='%s' data-risky='%d' style='margin-top:3px'>"
+            "<span style='min-width:0'><span style='font-size:11px;font-weight:700;color:%s'>%s</span> "
+            "<b>%s</b> <span style='color:#6e7781'>(%s)</span><br>"
+            "<span style='font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#6e7781;"
+            "word-break:break-all'>%s</span></span></label>"
+            % (esc(fi["path"]), 1 if risky else 0, color, esc(badge), esc(fi["desc"]),
+               esc(human(fi["size"])), esc(tildify(fi["path"]))))
+    script = ("<script>var M_NONE=%s,M_SAFE=%s,M_RISKY=%s;"
+              "function dsDel(fm){var b=fm.querySelectorAll('input[name=del]:checked');"
+              "if(!b.length){alert(M_NONE);return false;}"
+              "var r=Array.prototype.some.call(b,function(x){return x.getAttribute('data-risky')==='1';});"
+              "return confirm(r?M_RISKY:M_SAFE);}</script>"
+              % (json.dumps(m_none), json.dumps(m_safe), json.dumps(m_risky)))
+    return (
+        script +
+        "<div style='background:#fff;border:1px solid #d0d7de;border-radius:10px;"
+        "padding:14px 16px;margin:0 0 18px'>"
+        "<div style='font-weight:700;margin-bottom:2px'>%s</div>"
+        "<div style='font-size:12px;color:#6e7781;margin-bottom:6px'>%s</div>"
+        "<form method='post' action='/delete' onsubmit='return dsDel(this)'>%s"
+        "<button style='margin-top:12px;background:#d1242f;color:#fff;border:0;"
+        "padding:9px 18px;border-radius:8px;font-size:14px;cursor:pointer'>🗑 %s</button>"
+        "</form></div>"
+    ) % (esc(title), esc(note), "".join(rows), esc(btn))
+
 def page():
-    f = newest_html()
+    f = newest("*.html")
     if not f:
         return ("<!doctype html><meta charset=utf-8>"
                 "<body style='font-family:sans-serif;padding:40px'>"
@@ -1629,7 +1744,7 @@ def page():
         doc = h.read()
     marker = "<div class='wrap'>"
     if marker in doc:
-        doc = doc.replace(marker, marker + TOOLBAR, 1)
+        doc = doc.replace(marker, marker + TOOLBAR + delete_panel(), 1)
     return doc.encode("utf-8")
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1655,7 +1770,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         if path == "/rescan":
-            subprocess.run([self_bin, *scan_flags], check=False)
+            subprocess.run([self_bin, *scan_flags], env=scan_env, check=False)
+            self._send(303, b"", headers={"Location": "/"})
+        elif path == "/delete":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length).decode("utf-8") if length else ""
+            requested = urllib.parse.parse_qs(body).get("del", [])
+            # Validate every requested path against the current whitelist —
+            # the server only ever trashes paths it is currently offering.
+            allowed = {fi["path"] for fi in deletable()}
+            valid = [p for p in requested if p in allowed]
+            if valid:
+                to_trash(valid)
+            subprocess.run([self_bin, *scan_flags], env=scan_env, check=False)
             self._send(303, b"", headers={"Location": "/"})
         else:
             self._send(404, b"not found")
@@ -1833,6 +1960,11 @@ Run a scan, then serve the styled HTML report as a tiny local web UI at
 Your browser opens automatically. A ${C_BOLD}Re-scan${C_RESET} button re-runs the scan and
 refreshes the page. Bound to 127.0.0.1 only — not reachable from the network.
 Press Ctrl-C to stop.
+
+A ${C_BOLD}Quick-delete panel${C_RESET} lets you tick safe findings and move them to the
+${C_BOLD}Trash${C_RESET} (recoverable — never 'rm'). Only directly-deletable patterns are
+offered (caches, DerivedData, Simulator data, iPhone backups, Ollama models);
+higher-risk items show ⚠ and ask twice. Never deletes anything on its own.
 
 Options:
   --quick   Skip the flow-type pass (no TCC dialogs), same as 'scan --quick'.
