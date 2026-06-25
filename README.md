@@ -178,6 +178,9 @@ Known patterns bundled in the initial release:
 | macOS VM swap | Swap files (reboot to reclaim) | 🟡 Medium |
 | Electron caches | Browser/Electron app caches (safe to delete) | 🟢 Safe |
 | Xcode DerivedData | Xcode build artifacts (safe to delete) | 🟢 Safe |
+| Xcode Simulator caches | CoreSimulator caches (regenerated on demand) | 🟢 Safe |
+| Xcode Simulator devices | Old/unused simulator devices (deleting wipes their state) | 🟡 Medium |
+| Xcode iOS DeviceSupport | Debug symbols, re-downloaded on device connect | 🟢 Safe |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
 Patterns are declarative JSON — community contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
