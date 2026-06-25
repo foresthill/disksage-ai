@@ -172,6 +172,12 @@ desc_electron=%s caches: %s (regenerated on demand)
 act_electron=Quit %s, then delete Cache / Code Cache / GPUCache inside %s
 desc_xcode=Xcode DerivedData: %s (regenerated on next build)
 act_xcode=Xcode → Settings → Locations → DerivedData → arrow → move to Trash
+desc_simcache=Xcode Simulator caches: %s (regenerated on demand)
+act_simcache=Quit Simulator, then delete the contents of ~/Library/Developer/CoreSimulator/Caches
+desc_simdevices=Xcode Simulator devices: %s (old/unused simulators hold disk)
+act_simdevices=Remove unavailable sims with '"'"'xcrun simctl delete unavailable'"'"'; review the rest in Xcode > Devices (deleting a device wipes its state)
+desc_devicesupport=Xcode iOS DeviceSupport: %s (debug symbols, re-downloaded on device connect)
+act_devicesupport=Delete old versions under ~/Library/Developer/Xcode/iOS DeviceSupport — regenerated next time you attach a device
 '
 
 readonly CATALOG_JA='
@@ -218,6 +224,12 @@ desc_electron=%s のキャッシュ: %s（必要時に再生成）
 act_electron=%s を終了し、%s 内の Cache / Code Cache / GPUCache を削除
 desc_xcode=Xcode DerivedData: %s（次回ビルドで再生成）
 act_xcode=Xcode → Settings → Locations → DerivedData → 矢印 → ゴミ箱へ移動
+desc_simcache=Xcode シミュレータのキャッシュ: %s（必要時に再生成）
+act_simcache=Simulator を終了し、~/Library/Developer/CoreSimulator/Caches の中身を削除
+desc_simdevices=Xcode シミュレータのデバイス: %s（古い/未使用シミュレータが容量を占有）
+act_simdevices='"'"'xcrun simctl delete unavailable'"'"' で不要シミュレータを削除。残りは Xcode > Devices で確認（デバイス削除でその状態は消えます）
+desc_devicesupport=Xcode iOS DeviceSupport: %s（デバッグシンボル。デバイス接続時に再DL）
+act_devicesupport=~/Library/Developer/Xcode/iOS DeviceSupport の古いバージョンを削除（次回デバイス接続で再生成）
 '
 
 # Look up a raw format string for (lang, key). Prints it (no newline); returns
@@ -411,7 +423,52 @@ check_xcode_derived_data() {
   fi
 }
 
-# 9. Flow-type: files > 500 MB modified in the last 30 days.
+# 9. Xcode Simulator caches (regenerated on demand)
+check_coresimulator_caches() {
+  local f="$1"
+  [[ "$OS" == "Darwin" ]] || return 0
+  local dir="$HOME/Library/Developer/CoreSimulator/Caches"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 1 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "coresimulator_caches" "$dir" "$size" "safe" \
+      "$(t desc_simcache "$(human_size "$size")")" \
+      "$(t act_simcache)"
+  fi
+}
+
+# 10. Xcode Simulator devices (old/unused simulators hold disk; deleting wipes state)
+check_coresimulator_devices() {
+  local f="$1"
+  [[ "$OS" == "Darwin" ]] || return 0
+  local dir="$HOME/Library/Developer/CoreSimulator/Devices"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "coresimulator_devices" "$dir" "$size" "medium" \
+      "$(t desc_simdevices "$(human_size "$size")")" \
+      "$(t act_simdevices)"
+  fi
+}
+
+# 11. Xcode iOS DeviceSupport (debug symbols, re-downloaded on device connect)
+check_ios_devicesupport() {
+  local f="$1"
+  [[ "$OS" == "Darwin" ]] || return 0
+  local dir="$HOME/Library/Developer/Xcode/iOS DeviceSupport"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 3 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "ios_devicesupport" "$dir" "$size" "safe" \
+      "$(t desc_devicesupport "$(human_size "$size")")" \
+      "$(t act_devicesupport)"
+  fi
+}
+
+# 12. Flow-type: files > 500 MB modified in the last 30 days.
 #    Returns top 20 rows, "size_bytes<TAB>path".
 find_flow_type_files() {
   find "$HOME" -type f -size +500M -mtime -30 -print 2>/dev/null \
@@ -1453,6 +1510,9 @@ EOF
   check_vm_swap                 "$findings_file"
   check_electron_cache          "$findings_file"
   check_xcode_derived_data      "$findings_file"
+  check_coresimulator_caches    "$findings_file"
+  check_coresimulator_devices   "$findings_file"
+  check_ios_devicesupport       "$findings_file"
 
   local ai_model=""
   if $use_ai; then

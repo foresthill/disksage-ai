@@ -61,6 +61,9 @@
 | `vm_swap` | macOS スワップ > 5GB | medium |
 | `electron_cache` | Electron 系 Cache/Code Cache/GPUCache > 500MB | safe |
 | `xcode_derived_data` | Xcode DerivedData > 5GB | safe |
+| `coresimulator_caches` | CoreSimulator/Caches > 1GB | safe |
+| `coresimulator_devices` | CoreSimulator/Devices > 5GB（削除でシミュレータ状態消失） | medium |
+| `ios_devicesupport` | Xcode iOS DeviceSupport > 3GB（接続時に再DL） | safe |
 | `flow_type` | 30日以内に作成の 500MB 超ファイル（レポート欄） | info |
 
 ---
