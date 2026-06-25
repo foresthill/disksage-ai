@@ -73,6 +73,14 @@ disksage help              # See all commands
 scan and refreshes the page. It's the lightest step toward a GUI — bound to
 `127.0.0.1` only (not reachable from the network), Python standard library only.
 
+**Quick-delete panel** — tick the findings you want gone and **Move selected to
+Trash** (recoverable — never `rm`). Only directly-deletable patterns are offered
+(caches, DerivedData, Simulator data, iPhone backups, Ollama models); patterns
+where the path isn't the right target (Electron app dirs, Docker.raw,
+`node_modules` aggregate) or that need other tools (snapshots, swap) stay
+manual. Higher-risk items show ⚠ and ask for confirmation twice. Consistent with
+the core rule: DiskSage never deletes anything on its own.
+
 ```bash
 disksage serve                 # full scan, serve, open browser
 disksage serve --quick         # skip the slow $HOME flow-type pass
