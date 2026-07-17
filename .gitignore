@@ -10,3 +10,6 @@
 
 # DiskSage runtime data (created under $HOME/.disksage by default)
 .disksage/
+
+# Built macOS app bundle (generate with scripts/make-app.sh)
+DiskSage.app/

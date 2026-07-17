@@ -91,6 +91,21 @@ disksage serve --port 9000     # custom port (or DISKSAGE_PORT)
 Press Ctrl-C to stop. The first scan (and each Re-scan) takes as long as a normal
 scan — on machines with large `node_modules` trees that can be ~30s.
 
+#### Double-click app (macOS)
+
+Prefer launching from Finder? Build a thin `DiskSage.app` that opens the web UI
+on double-click:
+
+```bash
+bash scripts/make-app.sh            # builds ./DiskSage.app
+mv DiskSage.app /Applications/       # optional
+open DiskSage.app                    # or double-click in Finder
+```
+
+Double-clicking opens Terminal running `disksage serve` (so you can see the log
+and press Ctrl-C to stop) and pops the web UI in your browser. It's a launcher
+around the CLI — the native Rust/Tauri app is the [v0.4](#roadmap) milestone.
+
 ### HTML report (`--html`)
 
 `--html` writes a styled, **self-contained** `.html` next to the Markdown report
