@@ -1314,8 +1314,59 @@ run_ai_analysis() {
     fi
   fi
 
+  # Optional audit log: save exactly what was sent / received, plus a
+  # real→masked mapping so you can verify masking. Enabled by DISKSAGE_AI_LOG.
+  # NOTE: masking.tsv contains REAL paths — local audit only, never shared.
+  if [[ -n "${DISKSAGE_AI_LOG:-}" && -s "$req_file" ]]; then
+    local logdir
+    logdir="$DISKSAGE_HOME/ai-logs/$(filename_now)"
+    mkdir -p "$logdir"
+    cp "$req_file"  "$logdir/request.json"  2>/dev/null
+    cp "$resp_file" "$logdir/response.json" 2>/dev/null
+    write_masking_log "$findings_file" "$masked_file" > "$logdir/masking.tsv" 2>/dev/null
+    info "AI audit log: $(tildify "$logdir")"
+  fi
+
   rm -f "$req_file" "$resp_file" "$curl_err" "$masked_file"
   return $rc
+}
+
+# Write a real→masked audit table (TSV) for the current findings, so masking
+# effectiveness can be inspected. Reads the real and masked findings files
+# (same line order → same index). Prints to stdout.
+write_masking_log() {
+  local real="$1" masked="$2"
+  REAL="$real" MASKED="$masked" python3 <<'PYEOF'
+import os, sys
+
+def load(p):
+    rows = []
+    try:
+        with open(p) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                c = line.split("\t")
+                if len(c) >= 6:
+                    rows.append(c)
+    except OSError:
+        pass
+    return rows
+
+R = load(os.environ["REAL"])
+M = load(os.environ["MASKED"])
+n = min(len(R), len(M))
+print("index\tpattern_id\treal_path\tmasked_path\tanonymized")
+changed = 0
+for i in range(n):
+    rp, mp = R[i][2], M[i][2]
+    a = "yes" if rp != mp else "no"
+    if a == "yes":
+        changed += 1
+    print("%d\t%s\t%s\t%s\t%s" % (i, R[i][1], rp, mp, a))
+sys.stderr.write("masking: %d/%d paths anonymized\n" % (changed, n))
+PYEOF
 }
 
 # Render the AI Assessment section by joining findings with AI judgments.
@@ -1464,6 +1515,7 @@ cmd_scan() {
       --quick)        quick=true ;;
       -y|--yes)       assume_yes=true ;;
       --html)         want_html=true ;;
+      --ai-log)       export DISKSAGE_AI_LOG=1 ;;
       -h|--help)      cmd_help scan; return 0 ;;
       *)              warn "scan: ignoring unknown argument '$1'" ;;
     esac
@@ -1910,7 +1962,7 @@ cmd_help() {
   case "$sub" in
     scan)
       cat <<EOF
-Usage: disksage scan [--quick] [--ai] [--yes] [--html]
+Usage: disksage scan [--quick] [--ai] [--yes] [--html] [--ai-log]
 
 Scan known heavy-hitter locations and write a Markdown report to
   $SCANS_DIR/
@@ -1929,6 +1981,11 @@ Options:
             never transmitted. You see the exact masked payload and confirm
             before anything is sent.
   --yes     Skip the AI send confirmation prompt (for non-interactive use).
+  --ai-log  Save an audit log of the AI exchange under
+            $DISKSAGE_HOME/ai-logs/<time>/: request.json (exactly what was
+            sent — masked), response.json, and masking.tsv (real→masked path
+            map to verify masking). masking.tsv holds REAL paths — keep it
+            local. (Same as DISKSAGE_AI_LOG=1.)
 
 AI mode (BYOK — bring your own key). Set ONE of:
   ANTHROPIC_API_KEY   Anthropic direct.  Default model: $AI_MODEL_ANTHROPIC
