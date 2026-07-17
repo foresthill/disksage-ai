@@ -45,7 +45,9 @@
   - レポート i18n ✅：`DISKSAGE_LANG`（`$LANG` 自動判定）で日本語レポート全文対応。`t()`/`t_lookup()` + `CATALOG_EN`/`CATALOG_JA`（bash 3.2 互換、連想配列不使用）。見出し・各パターン説明/Action・Next Steps・AI判定欄・フッタを翻訳。CLI/help は英語のまま。日本語以外の言語コードは AI reasoning のみ翻訳し、雛形は英語フォールバック
   - `snapshot` — ディスク使用量記録
   - `trend` — 時系列表示
+  - `reports` — 保存済みレポート一覧（時刻・`[html]`印）。各スキャンは `~/.disksage/scans/<stamp>.md`/`.html`/`.findings.tsv` として蓄積＝時系列の"断面"
   - `help` / `version`
+- serve レポート履歴 ✅：serve のツールバーに履歴 `<select>`（新しい順・「最新」タグ）。選ぶと `GET /?report=<stamp>` で過去レポート表示（stamp はサーバ側 `all_reports()` のホワイトリスト照合＝traversal防止）。過去レポートは読み取り専用（黄色バナー＋最新へ戻るリンク、削除パネル無し）。最新のみ削除パネル表示。`page(report_param)` / `toolbar()` / `old_banner()` / `friendly()`
 - ディスク使用量表示 ✅改善：APFS は複数ボリュームが1コンテナの空きを共有するため、`df` の個別%は誤解を生む。`render_disk_usage`(md)/`render_html` を**サイズ(=コンテナ)でグルーピング**し、コンテナ単位で「使用/全体/実%/空き」を1本のバー＋ボリューム内訳（used順）で表示（`df -Pk` で数値取得、used=size-avail）。「起動ディスク」ラベルは `/` を含むコンテナ。i18n: lbl_startup/used/free/disk_volnote
 - `scripts/make-app.sh` — ダブルクリック起動の `DiskSage.app`（macOS）生成 ✅。薄いランチャ＝Terminalで `disksage serve` を起動→ブラウザUI。ネイティブ(Rust/Tauri v0.4)ではなく低コストの「.app化」ステップ。`.app` は成果物なので gitignore（コミットしない）。CLIパスをビルド時に埋め込み＋実行時 `command -v disksage` フォールバック
 - README.md（OSSリリース品質）

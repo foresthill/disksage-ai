@@ -1754,6 +1754,9 @@ rescan_label = "再スキャン" if ja else "Re-scan"
 scanning_label = "スキャン中…" if ja else "Scanning…"
 empty_msg = ("まだレポートがありません。「再スキャン」を押してください。"
              if ja else "No report yet. Click Re-scan.")
+current_tag = "最新" if ja else "latest"
+old_view_msg = ("これは過去のレポートです（%s）。" if ja else "Viewing a past report (%s).")
+back_latest = "最新に戻る" if ja else "Back to latest"
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -1811,17 +1814,52 @@ def to_trash(paths):
     subprocess.run(["osascript", "-e",
                     'tell application "Finder" to delete {%s}' % items], check=False)
 
-TOOLBAR = (
-    "<div style=\"position:sticky;top:0;z-index:10;background:#1f2328;color:#fff;"
-    "margin:-28px -32px 16px;padding:12px 32px;border-radius:12px 12px 0 0;"
-    "display:flex;justify-content:space-between;align-items:center\">"
-    "<strong>🩺 DiskSage</strong>"
-    "<form method=\"post\" action=\"/rescan\" style=\"margin:0\" "
-    "onsubmit=\"this.querySelector('button').textContent='%s';this.querySelector('button').disabled=true\">"
-    "<button style=\"background:#1a7f37;color:#fff;border:0;padding:8px 16px;"
-    "border-radius:8px;font-size:14px;cursor:pointer\">🔄 %s</button>"
-    "</form></div>"
-) % (scanning_label, rescan_label)
+def all_reports():
+    # (stamp, html_path) for every saved report, newest first.
+    rep = [(os.path.splitext(os.path.basename(f))[0], f)
+           for f in glob.glob(os.path.join(scans_dir, "*.html"))]
+    rep.sort(key=lambda x: x[0], reverse=True)
+    return rep
+
+def friendly(stamp):
+    # 2026-06-20_143923 -> 2026-06-20 14:39:23
+    if len(stamp) >= 17 and stamp[10] == "_" and stamp[11:].isdigit():
+        t = stamp[11:]
+        return "%s %s:%s:%s" % (stamp[:10], t[:2], t[2:4], t[4:6])
+    return stamp
+
+def toolbar(selected, reports):
+    hist = ""
+    if len(reports) > 1:
+        newest_stamp = reports[0][0]
+        opts = []
+        for stamp, _ in reports:
+            tag = " (%s)" % current_tag if stamp == newest_stamp else ""
+            sel = " selected" if stamp == selected else ""
+            opts.append("<option value='%s'%s>%s%s</option>"
+                        % (esc(stamp), sel, esc(friendly(stamp)), esc(tag)))
+        hist = ("<select onchange=\"location.href='/?report='+this.value\" "
+                "style='background:#2d333b;color:#fff;border:1px solid #444c56;"
+                "border-radius:8px;padding:7px 10px;font-size:13px;margin-right:10px'>"
+                "%s</select>") % "".join(opts)
+    return (
+        "<div style=\"position:sticky;top:0;z-index:10;background:#1f2328;color:#fff;"
+        "margin:-28px -32px 16px;padding:12px 32px;border-radius:12px 12px 0 0;"
+        "display:flex;justify-content:space-between;align-items:center;gap:12px\">"
+        "<strong>🩺 DiskSage</strong>"
+        "<div style=\"display:flex;align-items:center\">%s"
+        "<form method=\"post\" action=\"/rescan\" style=\"margin:0\" "
+        "onsubmit=\"this.querySelector('button').textContent='%s';this.querySelector('button').disabled=true\">"
+        "<button style=\"background:#1a7f37;color:#fff;border:0;padding:8px 16px;"
+        "border-radius:8px;font-size:14px;cursor:pointer\">🔄 %s</button>"
+        "</form></div></div>"
+    ) % (hist, scanning_label, rescan_label)
+
+def old_banner(stamp):
+    return ("<div style='background:#fff3cd;border:1px solid #ffe69c;border-radius:8px;"
+            "padding:10px 14px;margin:0 0 16px;font-size:13px'>📁 %s "
+            "<a href='/' style='color:#0969da;text-decoration:none'>%s →</a></div>"
+            % (esc(old_view_msg % friendly(stamp)), esc(back_latest)))
 
 def delete_panel():
     items = deletable()
@@ -1872,17 +1910,25 @@ def delete_panel():
         "</form></div>"
     ) % (esc(title), esc(note), "".join(rows), esc(btn))
 
-def page():
-    f = newest("*.html")
-    if not f:
+def page(report_param=None):
+    reports = all_reports()
+    if not reports:
         return ("<!doctype html><meta charset=utf-8>"
                 "<body style='font-family:sans-serif;padding:40px'>"
-                + TOOLBAR + "<p>" + empty_msg + "</p></body>").encode("utf-8")
-    with open(f, encoding="utf-8") as h:
+                + toolbar("", []) + "<p>" + empty_msg + "</p></body>").encode("utf-8")
+    by_stamp = dict(reports)
+    newest_stamp = reports[0][0]
+    # Validate against known stamps (prevents path traversal / arbitrary files).
+    selected = report_param if report_param in by_stamp else newest_stamp
+    is_current = (selected == newest_stamp)
+    with open(by_stamp[selected], encoding="utf-8") as h:
         doc = h.read()
     marker = "<div class='wrap'>"
     if marker in doc:
-        doc = doc.replace(marker, marker + TOOLBAR + delete_panel(), 1)
+        # Delete panel only for the current report (old ones may be stale).
+        inject = toolbar(selected, reports)
+        inject += delete_panel() if is_current else old_banner(selected)
+        doc = doc.replace(marker, marker + inject, 1)
     return doc.encode("utf-8")
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1897,10 +1943,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self):
-        path = urllib.parse.urlparse(self.path).path
-        if path in ("/", "/index.html"):
-            self._send(200, page())
-        elif path == "/favicon.ico":
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path in ("/", "/index.html"):
+            report = (urllib.parse.parse_qs(parsed.query).get("report") or [None])[0]
+            self._send(200, page(report))
+        elif parsed.path == "/favicon.ico":
             self._send(204)
         else:
             self._send(404, b"not found")
@@ -2041,6 +2088,32 @@ for (fs, mount), series in sorted(by_fs.items()):
 PYEOF
 }
 
+# List saved scan reports (newest first) — each is a point-in-time snapshot.
+cmd_reports() {
+  ensure_dirs
+  local count
+  count=$(find "$SCANS_DIR" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$count" == "0" ]]; then
+    warn "No reports yet. Run 'disksage scan' (add --html for the web view)."
+    return 1
+  fi
+  info "$count report(s) in $(tildify "$SCANS_DIR")  (newest first)"
+  # Sort by name (timestamped) descending; note which also have an HTML view.
+  find "$SCANS_DIR" -maxdepth 1 -name '*.md' 2>/dev/null | sort -r \
+    | while IFS= read -r md; do
+        local stamp friendly html_mark
+        stamp=$(basename "$md" .md)
+        # 2026-06-20_143923 -> 2026-06-20 14:39:23
+        friendly="${stamp:0:10} ${stamp:11:2}:${stamp:13:2}:${stamp:15:2}"
+        html_mark=""
+        [[ -f "$SCANS_DIR/$stamp.html" ]] && html_mark=" ${C_DIM}[html]${C_RESET}"
+        printf '  %s%s\n' "$friendly" "$html_mark"
+        printf '    %s%s%s\n' "$C_DIM" "$(tildify "$md")" "$C_RESET"
+      done
+  printf '\n%sTip:%s browse them visually with %sdisksage serve%s (history dropdown).\n' \
+    "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+}
+
 cmd_version() { echo "disksage v$VERSION"; }
 
 cmd_help() {
@@ -2152,6 +2225,7 @@ Commands:
                     with a Re-scan button. See 'disksage help serve'.
   snapshot          Record current disk usage for trend tracking.
   trend             Show disk usage history over time.
+  reports           List saved scan reports (each is a point-in-time snapshot).
   version           Print version.
   help [command]    Show this help, or help for a specific command.
 
@@ -2177,6 +2251,7 @@ main() {
     serve)                 cmd_serve "$@" ;;
     snapshot)              cmd_snapshot "$@" ;;
     trend)                 cmd_trend "$@" ;;
+    reports)               cmd_reports "$@" ;;
     version|--version|-v)  cmd_version ;;
     help|--help|-h)        cmd_help "$@" ;;
     *)                     die "unknown command: $cmd  (try: disksage help)" ;;
