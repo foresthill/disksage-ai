@@ -46,6 +46,7 @@
   - `snapshot` — ディスク使用量記録
   - `trend` — 時系列表示
   - `help` / `version`
+- `scripts/make-app.sh` — ダブルクリック起動の `DiskSage.app`（macOS）生成 ✅。薄いランチャ＝Terminalで `disksage serve` を起動→ブラウザUI。ネイティブ(Rust/Tauri v0.4)ではなく低コストの「.app化」ステップ。`.app` は成果物なので gitignore（コミットしない）。CLIパスをビルド時に埋め込み＋実行時 `command -v disksage` フォールバック
 - README.md（OSSリリース品質）
 - LICENSE（Apache-2.0）
 - CONTRIBUTING.md、CI（GitHub Actions: bash 構文 + ShellCheck）
