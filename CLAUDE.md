@@ -119,6 +119,7 @@
   - 送信前にプライバシープレビュー画面で確認（`--yes` でスキップ可）
   - 実装メモ：`ai_mask_findings` / `build_ai_request` / `parse_ai_response` / `ai_preview_and_confirm` / `run_ai_analysis` / `render_ai_section`（`disksage` 内）
   - 既知の残留：description 文に app/ベンダー名が残る（判定シグナルかつ低機微・プレビューで可視）。残課題：API キーの OS キーチェーン保管（現状は環境変数のみ）、flow-type ファイルの AI 判定対象化、description のマスキング強化
+  - **監査ログ ✅**：`--ai-log`（or `DISKSAGE_AI_LOG=1`）で `~/.disksage/ai-logs/<日時>/` に `request.json`（実送信物・マスク済）/`response.json`（生レスポンス）/`masking.tsv`（real→masked 対応表＋anonymized列）を保存。`run_ai_analysis` 内で curl 後・rm 前に出力、`write_masking_log`（Python）で real/masked findings を index 突合。マスキング効果の定量確認に使える。`masking.tsv` は実パス含む＝ローカル限定・非共有。副産物: coresimulator_devices が `Developer/CoreSimulator` 未allowlistで過剰マスクと判明（今後 SAFE に追加検討）
 - [ ] パターンを JSON に外出し（現在は bash にハードコード）
 - [ ] より多くのパターン（Photos Library、Mail、iCloud Optimized、Time Machine local）
 - [ ] Homebrew tap 対応

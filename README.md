@@ -158,6 +158,22 @@ falls back to English. CLI messages and `--help` stay English for now.
 - If the key is missing or the request fails, the standard offline report is
   still produced.
 
+**Audit the masking (`--ai-log`)** — to see *exactly* what left your machine and
+how well masking worked, add `--ai-log` (or set `DISKSAGE_AI_LOG=1`):
+
+```bash
+disksage scan --ai --yes --ai-log
+# → ~/.disksage/ai-logs/<time>/
+```
+
+| File | Contents |
+|---|---|
+| `request.json` | The exact request body sent to the API (already masked) |
+| `response.json` | The raw API response |
+| `masking.tsv` | `real_path → masked_path` per finding + an `anonymized` flag |
+
+`masking.tsv` is a before/after table — e.g. `~/Documents/Acme/Q3/… → ~/Documents/<dir2>/<dir3>/…` — so you can quantify how much was anonymized. **`masking.tsv` contains real local paths — it's a local audit file, never shared.**
+
 ### Track "sudden growth" events
 
 Set up a cron job to snapshot every hour — next time your disk fills up mysteriously, you'll know when and by how much.
