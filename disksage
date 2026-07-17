@@ -144,6 +144,10 @@ item=%s item
 lbl_path=Path
 lbl_size=Size
 lbl_action=Action
+lbl_startup=Startup disk
+lbl_used=used
+lbl_free=free
+disk_volnote=Volumes below share this container'"'"'s free space:
 h_flow=📈 Recently Grown Files (> 500 MB, last 30 days)
 flow_none=_No recently grown large files detected._
 h_flow_plain=📈 Recently Grown Files
@@ -196,6 +200,10 @@ item=%s 件
 lbl_path=パス
 lbl_size=サイズ
 lbl_action=対処
+lbl_startup=起動ディスク
+lbl_used=使用
+lbl_free=空き
+disk_volnote=以下のボリュームはこの容器の空きを共有します:
 h_flow=📈 最近増えたファイル（500MB超・直近30日）
 flow_none=_最近増えた大きなファイルは見つかりませんでした。_
 h_flow_plain=📈 最近増えたファイル
@@ -522,9 +530,63 @@ render_flow_type_section() {
 render_disk_usage() {
   echo "## $(t h_disk)"
   echo
-  echo '```'
-  df -h 2>/dev/null | awk 'NR==1 || $1 ~ /^\/dev\//'
-  echo '```'
+  # Group volumes by APFS container (proxy: identical total size) so the real
+  # "disk is X% full" is shown once per container, not a misleading per-volume %.
+  DF_PK="$(df -Pk 2>/dev/null | awk 'NR>1 && $1 ~ /^\/dev\//')" \
+  L_STARTUP="$(t lbl_startup)" L_USED="$(t lbl_used)" L_FREE="$(t lbl_free)" \
+  L_VOLNOTE="$(t disk_volnote)" python3 <<'PYEOF'
+import os
+
+def human(kb):
+    n = float(kb) * 1024
+    u = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    while n >= 1024 and i < len(u) - 1:
+        n /= 1024
+        i += 1
+    return ("%d %s" % (int(n), u[i])) if i == 0 else ("%.1f %s" % (n, u[i]))
+
+rows = []
+for line in os.environ.get("DF_PK", "").splitlines():
+    p = line.split()
+    if len(p) < 6:
+        continue
+    try:
+        size, used, avail = int(p[1]), int(p[2]), int(p[3])
+    except ValueError:
+        continue
+    rows.append({"size": size, "used": used, "avail": avail, "mount": " ".join(p[5:])})
+
+# Group by total size (volumes in one APFS container report the same size).
+groups = {}
+for r in rows:
+    groups.setdefault(r["size"], []).append(r)
+
+L_STARTUP = os.environ["L_STARTUP"]
+L_USED = os.environ["L_USED"]
+L_FREE = os.environ["L_FREE"]
+L_VOLNOTE = os.environ["L_VOLNOTE"]
+
+for size in sorted(groups, reverse=True):
+    members = groups[size]
+    free = max(m["avail"] for m in members)   # shared free space of the container
+    used = size - free
+    pct = (used * 100 // size) if size else 0
+    mounts = [m["mount"] for m in members]
+    label = L_STARTUP if "/" in mounts else max(members, key=lambda m: m["used"])["mount"]
+    bar_len = 24
+    fill = int(round(pct / 100 * bar_len))
+    bar = "█" * fill + "░" * (bar_len - fill)
+    print("### %s" % label)
+    print("`%s`  %s %s / %s (%d%%) · %s %s" %
+          (bar, L_USED, human(used), human(size), pct, L_FREE, human(free)))
+    if len(members) > 1:
+        print()
+        print("_%s_" % L_VOLNOTE)
+        for m in sorted(members, key=lambda m: -m["used"]):
+            print("- %s — %s" % (m["mount"], human(m["used"])))
+    print()
+PYEOF
 }
 
 render_report() {
@@ -596,7 +658,8 @@ render_html() {
   {
     for key in title h_disk h_findings no_findings \
                sev_high sev_medium sev_low sev_safe sev_info \
-               lbl_path lbl_size lbl_action h_flow flow_none \
+               lbl_path lbl_size lbl_action lbl_startup lbl_used lbl_free \
+               disk_volnote h_flow flow_none \
                h_flow_plain flow_skipped h_next next1 next2 next3 next4; do
       printf '%s\t%s\n' "$key" "$(t "$key")"
     done
@@ -604,12 +667,12 @@ render_html() {
     printf '%s\t%s\n' "footer_line" "$(t footer "$VERSION")"
   } > "$labels_file"
 
-  local df_lines
-  df_lines=$(df -h 2>/dev/null | awk 'NR==1 || $1 ~ /^\/dev\//')
+  local df_pk
+  df_pk=$(df -Pk 2>/dev/null | awk 'NR>1 && $1 ~ /^\/dev\//')
 
   FINDINGS_FILE="$findings_file" AI_FILE="$ai_file" LABELS_FILE="$labels_file" \
   MODEL="$ai_model" DS_LANG="$DS_LANG" HOMEDIR="$HOME" \
-  INCLUDE_FLOW="$include_flow" DF_LINES="$df_lines" FLOW_ROWS="$flow_rows" \
+  INCLUDE_FLOW="$include_flow" DF_PK="$df_pk" FLOW_ROWS="$flow_rows" \
   python3 <<'PYEOF' > "$out"
 import os, html
 
@@ -769,34 +832,57 @@ w("<h1>%s</h1>" % esc(lbl("title")))
 gl = lbl("generated_line").strip("_")
 w("<div class='meta'>%s</div>" % esc(gl))
 
-# Disk usage bars
+# Disk usage — grouped by APFS container (volumes sharing a container report the
+# same total size). One real "X% full" bar per container, then its volumes.
 w("<h2>%s</h2>" % esc(lbl("h_disk")))
-df_lines = os.environ.get("DF_LINES", "").splitlines()
-vols = []
-for ln in df_lines[1:]:
+
+def human_kb(kb):
+    n = float(kb) * 1024
+    uu = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    while n >= 1024 and i < len(uu) - 1:
+        n /= 1024
+        i += 1
+    return ("%d %s" % (int(n), uu[i])) if i == 0 else ("%.1f %s" % (n, uu[i]))
+
+df_rows = []
+for ln in os.environ.get("DF_PK", "").splitlines():
     parts = ln.split()
-    if not parts or not parts[0].startswith("/dev/"):
+    if len(parts) < 6:
         continue
-    pct = 0
-    cap = ""
-    for tok in parts[1:]:
-        if tok.endswith("%"):
-            cap = tok
-            try:
-                pct = int(tok.rstrip("%"))
-            except ValueError:
-                pct = 0
-            break
-    size = parts[1] if len(parts) > 1 else ""
-    used = parts[2] if len(parts) > 2 else ""
-    mount = parts[-1]
-    vols.append((mount, used, size, cap, pct))
-for mount, used, size, cap, pct in vols:
-    w("<div class='vol'><span class='name'>%s</span>"
+    try:
+        sz, us, av = int(parts[1]), int(parts[2]), int(parts[3])
+    except ValueError:
+        continue
+    df_rows.append({"size": sz, "used": us, "avail": av, "mount": " ".join(parts[5:])})
+
+groups = {}
+for r in df_rows:
+    groups.setdefault(r["size"], []).append(r)
+
+for size in sorted(groups, reverse=True):
+    members = groups[size]
+    free = max(m["avail"] for m in members)
+    used = size - free
+    pct = (used * 100 // size) if size else 0
+    mounts = [m["mount"] for m in members]
+    label = lbl("lbl_startup") if "/" in mounts else max(members, key=lambda m: m["used"])["mount"]
+    w("<div class='vol'><span class='name' style='color:var(--fg);font-weight:600'>%s</span>"
       "<div class='barrow'>"
       "<span class='track'><span class='fill' style='width:%d%%;background:%s'></span></span>"
-      "<span class='num'>%s / %s &middot; %s</span></div></div>"
-      % (esc(mount), min(pct, 100), cap_color(pct), esc(used), esc(size), esc(cap)))
+      "<span class='num'>%s %s / %s (%d%%) &middot; %s %s</span></div></div>"
+      % (esc(label), min(pct, 100), cap_color(pct),
+         esc(lbl("lbl_used")), esc(human_kb(used)), esc(human_kb(size)), pct,
+         esc(lbl("lbl_free")), esc(human_kb(free))))
+    if len(members) > 1:
+        w("<div style='margin:2px 0 14px 4px;font-size:12px;color:#6e7781'>%s"
+          % esc(lbl("disk_volnote")))
+        for m in sorted(members, key=lambda m: -m["used"]):
+            w("<div style='display:flex;justify-content:space-between;max-width:420px'>"
+              "<span style='font-family:ui-monospace,Menlo,monospace;word-break:break-all'>%s</span>"
+              "<span style='white-space:nowrap;padding-left:12px'>%s</span></div>"
+              % (esc(m["mount"]), esc(human_kb(m["used"]))))
+        w("</div>")
 
 # Findings
 w("<h2>%s</h2>" % esc(lbl("h_findings")))
