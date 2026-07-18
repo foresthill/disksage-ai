@@ -88,6 +88,11 @@ disksage serve --ai --yes      # include the AI assessment (--yes: pre-confirm s
 disksage serve --port 9000     # custom port (or DISKSAGE_PORT)
 ```
 
+Every scan is saved as a timestamped report, so you build up a **history** of
+point-in-time snapshots. In `serve`, a **history dropdown** (top bar) lets you
+open any past report (read-only; the current one keeps the delete panel). From
+the CLI, `disksage reports` lists them.
+
 Press Ctrl-C to stop. The first scan (and each Re-scan) takes as long as a normal
 scan — on machines with large `node_modules` trees that can be ~30s.
 
