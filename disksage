@@ -182,6 +182,10 @@ desc_simdevices=Xcode Simulator devices: %s (old/unused simulators hold disk)
 act_simdevices=Remove unavailable sims with '"'"'xcrun simctl delete unavailable'"'"'; review the rest in Xcode > Devices (deleting a device wipes its state)
 desc_devicesupport=Xcode iOS DeviceSupport: %s (debug symbols, re-downloaded on device connect)
 act_devicesupport=Delete old versions under ~/Library/Developer/Xcode/iOS DeviceSupport — regenerated next time you attach a device
+desc_libcaches=App caches under ~/Library/Caches: %s (auto-refills; regenerated on demand)
+act_libcaches=Clear the biggest ones: quit the app, then delete its folder under ~/Library/Caches. Tool caches: '"'"'brew cleanup'"'"', '"'"'yarn cache clean'"'"'. See '"'"'disksage top'"'"' for the biggest folders.
+desc_usercache=Developer caches under ~/.cache: %s (re-downloadable)
+act_usercache=Clear with tool commands, e.g. '"'"'uv cache clean'"'"'; huggingface / puppeteer under ~/.cache re-download on demand.
 '
 
 readonly CATALOG_JA='
@@ -238,6 +242,10 @@ desc_simdevices=Xcode シミュレータのデバイス: %s（古い/未使用�
 act_simdevices='"'"'xcrun simctl delete unavailable'"'"' で不要シミュレータを削除。残りは Xcode > Devices で確認（デバイス削除でその状態は消えます）
 desc_devicesupport=Xcode iOS DeviceSupport: %s（デバッグシンボル。デバイス接続時に再DL）
 act_devicesupport=~/Library/Developer/Xcode/iOS DeviceSupport の古いバージョンを削除（次回デバイス接続で再生成）
+desc_libcaches=~/Library/Caches のアプリキャッシュ: %s（自動で再び溜まる・必要時に再生成）
+act_libcaches=大きいものから: アプリを終了し ~/Library/Caches 内の該当フォルダを削除。ツール系は '"'"'brew cleanup'"'"' / '"'"'yarn cache clean'"'"'。最大フォルダは '"'"'disksage top'"'"' で確認。
+desc_usercache=~/.cache の開発ツールキャッシュ: %s（再DL可能）
+act_usercache='"'"'uv cache clean'"'"' などツールのコマンドで削除。~/.cache の huggingface / puppeteer は必要時に再DLされます。
 '
 
 # Look up a raw format string for (lang, key). Prints it (no newline); returns
@@ -476,7 +484,35 @@ check_ios_devicesupport() {
   fi
 }
 
-# 12. Flow-type: files > 500 MB modified in the last 30 days.
+# 12. ~/Library/Caches aggregate — app caches, the classic "auto-refilling" hog.
+check_library_caches() {
+  local f="$1"
+  local dir="$HOME/Library/Caches"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "library_caches" "$dir" "$size" "safe" \
+      "$(t desc_libcaches "$(human_size "$size")")" \
+      "$(t act_libcaches)"
+  fi
+}
+
+# 13. ~/.cache aggregate — developer/tool caches (uv, huggingface, puppeteer…).
+check_user_cache() {
+  local f="$1"
+  local dir="$HOME/.cache"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "user_cache" "$dir" "$size" "safe" \
+      "$(t desc_usercache "$(human_size "$size")")" \
+      "$(t act_usercache)"
+  fi
+}
+
+# 14. Flow-type: files > 500 MB modified in the last 30 days.
 #    Returns top 20 rows, "size_bytes<TAB>path".
 find_flow_type_files() {
   find "$HOME" -type f -size +500M -mtime -30 -print 2>/dev/null \
@@ -1651,6 +1687,8 @@ EOF
   check_coresimulator_caches    "$findings_file"
   check_coresimulator_devices   "$findings_file"
   check_ios_devicesupport       "$findings_file"
+  check_library_caches          "$findings_file"
+  check_user_cache              "$findings_file"
 
   local ai_model=""
   if $use_ai; then
@@ -2114,6 +2152,33 @@ cmd_reports() {
     "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
 }
 
+# Biggest folders across your home — a fast, DaisyDisk-style "where did the GBs
+# go" overview. Shows top-level $HOME dirs, each ~/Library subdir, and common
+# large hidden caches, sorted by size. Catches cache dirs the pattern scan may
+# not itemize (e.g. ~/Library/Caches, ~/.cache).
+cmd_top() {
+  ensure_dirs
+  local n="${1:-20}"
+  case "$n" in ''|*[!0-9]*) n=20 ;; esac
+  command -v du >/dev/null 2>&1 || die "top requires 'du'."
+  info "Scanning your home for the biggest folders… (du walks every file — this can take a few minutes on a full disk)"
+  {
+    # Top-level home dirs (except Library, shown by its subdirs below).
+    du -shx "$HOME"/* 2>/dev/null | grep -vE "$(printf '\t')$HOME/Library$"
+    # Library broken down one level (Caches, Application Support, Containers, …).
+    du -shx "$HOME"/Library/* 2>/dev/null
+    # Common large hidden caches/toolchains.
+    local d
+    for d in .cache .ollama .docker .npm .yarn .gradle .m2 .cargo .rustup .pyenv .nvm .bun; do
+      [[ -d "$HOME/$d" ]] && du -shx "$HOME/$d" 2>/dev/null
+    done
+  } | sort -rh | head -n "$n" | while IFS=$'\t' read -r sz path; do
+        printf '  %-9s %s\n' "$sz" "$(tildify "$path")"
+      done
+  printf '\n%sTip:%s these are folder totals. Caches/build dirs are usually safe to clear;\n' "$C_BOLD" "$C_RESET"
+  printf '     run %sdisksage scan%s for per-pattern advice (and %s--ai%s for judgment).\n' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+}
+
 cmd_version() { echo "disksage v$VERSION"; }
 
 cmd_help() {
@@ -2209,6 +2274,19 @@ Usage: disksage trend
 Print disk usage history from previously collected snapshots.
 EOF
       ;;
+    top)
+      cat <<EOF
+Usage: disksage top [N]
+
+Show the biggest folders across your home directory, largest first (default
+N=20) — a fast way to answer "where did all the space go?" when the culprit is
+many files in a folder (caches, node_modules) rather than a few big files.
+
+Lists top-level \$HOME folders, each ~/Library subfolder, and common large
+hidden caches (~/.cache, ~/.ollama, …). Read-only; it never deletes.
+Note: du walks every file, so on a full disk this can take a few minutes.
+EOF
+      ;;
     *)
       cat <<EOF
 ${C_BOLD}🩺 DiskSage v$VERSION${C_RESET} — AI-assisted, never-deletes disk capacity helper.
@@ -2226,6 +2304,7 @@ Commands:
   snapshot          Record current disk usage for trend tracking.
   trend             Show disk usage history over time.
   reports           List saved scan reports (each is a point-in-time snapshot).
+  top [N]           Biggest folders across your home, largest first (default 20).
   version           Print version.
   help [command]    Show this help, or help for a specific command.
 
@@ -2252,6 +2331,7 @@ main() {
     snapshot)              cmd_snapshot "$@" ;;
     trend)                 cmd_trend "$@" ;;
     reports)               cmd_reports "$@" ;;
+    top)                   cmd_top "$@" ;;
     version|--version|-v)  cmd_version ;;
     help|--help|-h)        cmd_help "$@" ;;
     *)                     die "unknown command: $cmd  (try: disksage help)" ;;
