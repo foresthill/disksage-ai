@@ -515,7 +515,14 @@ check_user_cache() {
 # 14. Flow-type: files > 500 MB modified in the last 30 days.
 #    Returns top 20 rows, "size_bytes<TAB>path".
 find_flow_type_files() {
-  find "$HOME" -type f -size +500M -mtime -30 -print 2>/dev/null \
+  # Prune the high-file-count, low-signal trees (node_modules, .git, all Caches
+  # and .cache dirs) before matching. These hold millions of tiny files (slow to
+  # stat) and are already covered by aggregate patterns — pruning makes the walk
+  # dramatically faster AND stops flagging blobs buried inside them.
+  find "$HOME" \
+      \( -type d \( -name node_modules -o -name .git -o -name Caches -o -name .cache \) -prune \) \
+      -o \( -type f -size +500M -mtime -30 -print \) \
+      2>/dev/null \
     | while IFS= read -r fpath; do
         printf '%s\t%s\n' "$(file_size_bytes "$fpath")" "$fpath"
       done \
@@ -2161,20 +2168,40 @@ cmd_top() {
   local n="${1:-20}"
   case "$n" in ''|*[!0-9]*) n=20 ;; esac
   command -v du >/dev/null 2>&1 || die "top requires 'du'."
-  info "Scanning your home for the biggest folders… (du walks every file — this can take a few minutes on a full disk)"
-  {
-    # Top-level home dirs (except Library, shown by its subdirs below).
-    du -shx "$HOME"/* 2>/dev/null | grep -vE "$(printf '\t')$HOME/Library$"
-    # Library broken down one level (Caches, Application Support, Containers, …).
-    du -shx "$HOME"/Library/* 2>/dev/null
-    # Common large hidden caches/toolchains.
-    local d
-    for d in .cache .ollama .docker .npm .yarn .gradle .m2 .cargo .rustup .pyenv .nvm .bun; do
-      [[ -d "$HOME/$d" ]] && du -shx "$HOME/$d" 2>/dev/null
-    done
-  } | sort -rh | head -n "$n" | while IFS=$'\t' read -r sz path; do
+  info "Scanning your home for the biggest folders… (du runs in parallel — usually under a minute)"
+
+  # Collect the roots to measure: top-level $HOME dirs (Library shown by its
+  # subdirs instead), each ~/Library subdir, and common large hidden caches.
+  local -a roots=() p d
+  for p in "$HOME"/*; do
+    [[ -e "$p" ]] || continue
+    [[ "$p" == "$HOME/Library" ]] && continue
+    roots+=("$p")
+  done
+  for p in "$HOME"/Library/*; do
+    [[ -e "$p" ]] && roots+=("$p")
+  done
+  for d in .cache .ollama .docker .npm .yarn .gradle .m2 .cargo .rustup .pyenv .nvm .bun; do
+    [[ -d "$HOME/$d" ]] && roots+=("$HOME/$d")
+  done
+
+  # Run each root's du in parallel to its own temp file (disjoint subtrees, so
+  # wall-time ≈ the slowest single root instead of the sum). Separate files
+  # avoid interleaved writes.
+  local tmp i=0
+  tmp=$(mktemp -d)
+  for p in "${roots[@]}"; do
+    du -shx "$p" >"$tmp/$i" 2>/dev/null &
+    i=$((i + 1))
+  done
+  wait
+
+  cat "$tmp"/* 2>/dev/null | sort -rh | head -n "$n" \
+    | while IFS=$'\t' read -r sz path; do
         printf '  %-9s %s\n' "$sz" "$(tildify "$path")"
       done
+  rm -rf "$tmp"
+
   printf '\n%sTip:%s these are folder totals. Caches/build dirs are usually safe to clear;\n' "$C_BOLD" "$C_RESET"
   printf '     run %sdisksage scan%s for per-pattern advice (and %s--ai%s for judgment).\n' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
 }
