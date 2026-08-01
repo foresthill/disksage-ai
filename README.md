@@ -61,10 +61,26 @@ disksage scan --ai         # Add a Claude AI assessment per finding (BYOK)
 disksage scan --html       # Also write a styled, self-contained HTML report
 disksage scan --quick      # Skip the $HOME flow-type pass (no TCC dialogs)
 disksage serve             # Scan + open the HTML report as a local web UI
+disksage top               # Biggest folders across your home, largest first
 disksage snapshot          # Record current disk usage (for trend tracking)
 disksage trend             # Show disk usage history over time
+disksage reports           # List saved scan reports (point-in-time snapshots)
 disksage help              # See all commands
 ```
+
+### Where did the space go? (`top`)
+
+When the disk keeps filling and deleting a few big files barely helps, the
+culprit is usually a *folder* full of small files (caches, `node_modules`).
+`disksage top` gives a DaisyDisk-style "biggest folders" overview:
+
+```bash
+disksage top          # top 20 folders across ~ (and each ~/Library subdir)
+disksage top 40       # more rows
+```
+
+It's read-only. (`du` walks every file, so on a full disk it can take a few
+minutes.)
 
 ### Local web UI (`serve`)
 
@@ -225,6 +241,8 @@ Known patterns bundled in the initial release:
 | Xcode Simulator caches | CoreSimulator caches (regenerated on demand) | 🟢 Safe |
 | Xcode Simulator devices | Old/unused simulator devices (deleting wipes their state) | 🟡 Medium |
 | Xcode iOS DeviceSupport | Debug symbols, re-downloaded on device connect | 🟢 Safe |
+| ~/Library/Caches (aggregate) | App caches that auto-refill (>5GB total) | 🟢 Safe |
+| ~/.cache (aggregate) | Developer/tool caches — uv, huggingface, … (>5GB total) | 🟢 Safe |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
 Patterns are declarative JSON — community contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
