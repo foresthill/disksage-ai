@@ -52,6 +52,7 @@
 - 検出パターン追記 ✅：`library_caches`（~/Library/Caches 集計 >5GB・safe）/ `user_cache`（~/.cache 集計 >5GB・safe）。実利用診断で判明した「最大の犯人＝キャッシュ33G/18G」を今まで見逃していたのを塞いだ（`electron_cache` はアプリ個別のみで集計を拾えていなかった）。action は tool純正clean（brew cleanup / yarn cache clean / uv cache clean）と `disksage top` へ誘導。削除UI(DELETABLE)には**未追加**（コンテナ丸ごと削除は大ハンマー・稼働アプリ影響のため report のみ）
 - serve レポート履歴 ✅：serve のツールバーに履歴 `<select>`（新しい順・「最新」タグ）。選ぶと `GET /?report=<stamp>` で過去レポート表示（stamp はサーバ側 `all_reports()` のホワイトリスト照合＝traversal防止）。過去レポートは読み取り専用（黄色バナー＋最新へ戻るリンク、削除パネル無し）。最新のみ削除パネル表示。`page(report_param)` / `toolbar()` / `old_banner()` / `friendly()`
 - ディスク使用量表示 ✅改善：APFS は複数ボリュームが1コンテナの空きを共有するため、`df` の個別%は誤解を生む。`render_disk_usage`(md)/`render_html` を**サイズ(=コンテナ)でグルーピング**し、コンテナ単位で「使用/全体/実%/空き」を1本のバー＋ボリューム内訳（used順）で表示（`df -Pk` で数値取得、used=size-avail）。「起動ディスク」ラベルは `/` を含むコンテナ。i18n: lbl_startup/used/free/disk_volnote
+- `desktop/` — **Tauri v2 デスクトップアプリ雛形 ✅（案A: serve のWeb UIをネイティブ窓で表示）**。`create-tauri-app`(vanilla) 生成→改変。`src-tauri/src/lib.rs` が起動時に `disksage serve`（`DISKSAGE_NO_BROWSER=1` で二重ブラウザ抑止）を spawn、終了時 kill。`src/index.html` は `127.0.0.1:8765` を polling→到達で遷移。**未ビルド（初回 tauri build は ~1-2GB DL・10分超のため保留、設定はJSON検証済）**。将来はネイティブUI(案B/v0.4)へ。`target/`/`node_modules` は gitignore 済
 - `scripts/make-app.sh` — ダブルクリック起動の `DiskSage.app`（macOS）生成 ✅。薄いランチャ＝Terminalで `disksage serve` を起動→ブラウザUI。ネイティブ(Rust/Tauri v0.4)ではなく低コストの「.app化」ステップ。`.app` は成果物なので gitignore（コミットしない）。CLIパスをビルド時に埋め込み＋実行時 `command -v disksage` フォールバック
 - README.md（OSSリリース品質）
 - LICENSE（Apache-2.0）

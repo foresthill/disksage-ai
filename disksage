@@ -2025,7 +2025,10 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 httpd = Server(("127.0.0.1", port), Handler)
-threading.Timer(0.6, lambda: webbrowser.open("http://127.0.0.1:%d/" % port)).start()
+# Auto-open the browser, unless suppressed (e.g. when embedded in the Tauri app,
+# which displays the same URL inside its own native window).
+if not os.environ.get("DISKSAGE_NO_BROWSER"):
+    threading.Timer(0.6, lambda: webbrowser.open("http://127.0.0.1:%d/" % port)).start()
 try:
     httpd.serve_forever()
 except KeyboardInterrupt:
@@ -2279,6 +2282,10 @@ Options:
   --ai      Include the AI assessment. Because serve is non-interactive, this
             requires --yes (you pre-confirm sending masked metadata each scan).
   --port N  Port to listen on (default 8765).
+
+Env:
+  DISKSAGE_NO_BROWSER=1  Don't auto-open a browser (used by the desktop app,
+                         which shows the same UI in its own window).
 
 Requires python3 (standard library only — no extra dependencies).
 EOF
