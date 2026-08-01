@@ -79,8 +79,8 @@ disksage top          # top 20 folders across ~ (and each ~/Library subdir)
 disksage top 40       # more rows
 ```
 
-It's read-only. (`du` walks every file, so on a full disk it can take a few
-minutes.)
+It's read-only, and runs `du` on each root in parallel, so it usually finishes
+in well under a minute even on a full disk.
 
 ### Local web UI (`serve`)
 
