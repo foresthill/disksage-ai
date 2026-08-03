@@ -3,6 +3,7 @@
 // server (with the browser auto-open suppressed, since we show it in-window),
 // and we stop it again when the app quits.
 
+use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use tauri::Manager;
@@ -10,10 +11,33 @@ use tauri::Manager;
 /// Holds the spawned `disksage serve` child so we can terminate it on exit.
 struct ServeProcess(Mutex<Option<Child>>);
 
+/// Locate the `disksage` CLI. GUI-launched apps often have a minimal PATH, so
+/// don't rely on it alone: honour DISKSAGE_BIN, then check common install
+/// locations, then fall back to a bare PATH lookup.
+fn resolve_disksage() -> String {
+    if let Ok(p) = std::env::var("DISKSAGE_BIN") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates = [
+        "/usr/local/bin/disksage".to_string(),
+        "/opt/homebrew/bin/disksage".to_string(),
+        format!("{home}/.local/bin/disksage"),
+        format!("{home}/bin/disksage"),
+    ];
+    for c in candidates {
+        if Path::new(&c).exists() {
+            return c;
+        }
+    }
+    "disksage".to_string() // last resort: rely on PATH
+}
+
 fn start_serve() -> std::io::Result<Child> {
-    // Relies on `disksage` being on PATH (installed to /usr/local/bin, etc.).
     // DISKSAGE_NO_BROWSER stops the CLI from opening a second, external browser.
-    Command::new("disksage")
+    Command::new(resolve_disksage())
         .arg("serve")
         .env("DISKSAGE_NO_BROWSER", "1")
         .spawn()
