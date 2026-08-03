@@ -48,6 +48,7 @@
   - `reports` — 保存済みレポート一覧（時刻・`[html]`印）。各スキャンは `~/.disksage/scans/<stamp>.md`/`.html`/`.findings.tsv` として蓄積＝時系列の"断面"
   - `top [N]` — home 配下の**大きいフォルダ順**（DaisyDisk/Google Drive的）。`du -shx` で $HOME直下＋Library各subdir＋主要隠しキャッシュを集計しサイズ順表示。`cmd_top`。読み取り専用。**高速化済み**：各ルートを**並列 du**（temp file 分離→cat→sort）＝実機 ~23秒（旧: 逐次で120秒超タイムアウト）
 - スキャン高速化 ✅：flow-type(`find_flow_type_files`) は `node_modules`/`.git`/`Caches`/`.cache` を **-prune** して探索（実機 120秒超→66秒）。それらは集計パターンで別途検出済＝除外で高速化かつ blob 誤検出も解消。`top` は並列 du 化（→23秒）。実利用で判明した「勝手に増える」正体は Claude VM img(rootfs.img 10GB)・Zoom録画等＝flow-type が正しく拾う
+- pattern check 並列化 ✅：`cmd_scan` の check_* を**バックグラウンド並列実行**（各 `$cdir/<name>` に出力→`wait`→cat）。library_caches(33GBの du)等が重く逐次だと --quick でも ~46秒かかっていたのを **~22秒**に短縮。wall-time≈最遅チェック。desktop の初回ロード遅延を解消するため導入
   - `help` / `version`
 - 検出パターン追記 ✅：`library_caches`（~/Library/Caches 集計 >5GB・safe）/ `user_cache`（~/.cache 集計 >5GB・safe）。実利用診断で判明した「最大の犯人＝キャッシュ33G/18G」を今まで見逃していたのを塞いだ（`electron_cache` はアプリ個別のみで集計を拾えていなかった）。action は tool純正clean（brew cleanup / yarn cache clean / uv cache clean）と `disksage top` へ誘導。削除UI(DELETABLE)には**未追加**（コンテナ丸ごと削除は大ハンマー・稼働アプリ影響のため report のみ）
 - serve レポート履歴 ✅：serve のツールバーに履歴 `<select>`（新しい順・「最新」タグ）。選ぶと `GET /?report=<stamp>` で過去レポート表示（stamp はサーバ側 `all_reports()` のホワイトリスト照合＝traversal防止）。過去レポートは読み取り専用（黄色バナー＋最新へ戻るリンク、削除パネル無し）。最新のみ削除パネル表示。`page(report_param)` / `toolbar()` / `old_banner()` / `friendly()`
