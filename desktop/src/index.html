@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DiskSage</title>
+    <style>
+      :root { color-scheme: light dark; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex; align-items: center; justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        background: #f6f8fa; color: #1f2328;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0d1117; color: #e6edf3; }
+      }
+      .box { text-align: center; }
+      h1 { font-size: 40px; margin: 0 0 6px; }
+      .msg { color: #6e7781; font-size: 14px; }
+      .spinner {
+        width: 26px; height: 26px; margin: 18px auto 0;
+        border: 3px solid rgba(127,127,127,.3); border-top-color: #1a7f37;
+        border-radius: 50%; animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h1>🩺 DiskSage</h1>
+      <div class="msg" id="msg">起動中… 初回スキャン中です / Starting the local scan…</div>
+      <div class="spinner"></div>
+    </div>
+    <script>
+      // Wait for `disksage serve` (spawned by the Rust side) to come up, then
+      // load its web UI inside this window. The initial scan can take a bit.
+      const URL = "http://127.0.0.1:8765/";
+      let tries = 0;
+      async function probe() {
+        tries++;
+        try {
+          // no-cors: we only need to know the port is answering, not read it.
+          await fetch(URL, { mode: "no-cors", cache: "no-store" });
+          window.location.href = URL;
+        } catch (_e) {
+          if (tries === 20) {
+            document.getElementById("msg").textContent =
+              "まだ準備中…（初回は大きな home のスキャンに時間がかかります）";
+          }
+          setTimeout(probe, 700);
+        }
+      }
+      probe();
+    </script>
+  </body>
+</html>
