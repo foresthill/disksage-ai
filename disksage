@@ -1683,19 +1683,28 @@ EOF
   # shellcheck disable=SC2064
   trap "rm -f '$findings_file' '$ai_file'" EXIT
 
-  check_apfs_snapshots          "$findings_file"
-  check_iphone_backup           "$findings_file"
-  check_docker_raw              "$findings_file"
-  check_ollama_models           "$findings_file"
-  check_node_modules_aggregate  "$findings_file"
-  check_vm_swap                 "$findings_file"
-  check_electron_cache          "$findings_file"
-  check_xcode_derived_data      "$findings_file"
-  check_coresimulator_caches    "$findings_file"
-  check_coresimulator_devices   "$findings_file"
-  check_ios_devicesupport       "$findings_file"
-  check_library_caches          "$findings_file"
-  check_user_cache              "$findings_file"
+  # Run the pattern checks in parallel — each is an independent du/find of a
+  # different location, so wall-time ≈ the slowest single check (e.g. the big
+  # ~/Library/Caches du) instead of the sum. Each writes to its own temp file;
+  # results are merged afterwards (order doesn't matter — the report sorts).
+  local cdir
+  cdir=$(mktemp -d)
+  check_apfs_snapshots          "$cdir/apfs"          &
+  check_iphone_backup           "$cdir/iphone"        &
+  check_docker_raw              "$cdir/docker"        &
+  check_ollama_models           "$cdir/ollama"        &
+  check_node_modules_aggregate  "$cdir/node"          &
+  check_vm_swap                 "$cdir/vmswap"        &
+  check_electron_cache          "$cdir/electron"      &
+  check_xcode_derived_data      "$cdir/xcode"         &
+  check_coresimulator_caches    "$cdir/simcache"      &
+  check_coresimulator_devices   "$cdir/simdev"        &
+  check_ios_devicesupport       "$cdir/devsupport"    &
+  check_library_caches          "$cdir/libcaches"     &
+  check_user_cache              "$cdir/usercache"     &
+  wait
+  cat "$cdir"/* >> "$findings_file" 2>/dev/null
+  rm -rf "$cdir"
 
   local ai_model=""
   if $use_ai; then
@@ -2025,7 +2034,10 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 httpd = Server(("127.0.0.1", port), Handler)
-threading.Timer(0.6, lambda: webbrowser.open("http://127.0.0.1:%d/" % port)).start()
+# Auto-open the browser, unless suppressed (e.g. when embedded in the Tauri app,
+# which displays the same URL inside its own native window).
+if not os.environ.get("DISKSAGE_NO_BROWSER"):
+    threading.Timer(0.6, lambda: webbrowser.open("http://127.0.0.1:%d/" % port)).start()
 try:
     httpd.serve_forever()
 except KeyboardInterrupt:
@@ -2279,6 +2291,10 @@ Options:
   --ai      Include the AI assessment. Because serve is non-interactive, this
             requires --yes (you pre-confirm sending masked metadata each scan).
   --port N  Port to listen on (default 8765).
+
+Env:
+  DISKSAGE_NO_BROWSER=1  Don't auto-open a browser (used by the desktop app,
+                         which shows the same UI in its own window).
 
 Requires python3 (standard library only — no extra dependencies).
 EOF
