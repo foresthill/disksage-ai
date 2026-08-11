@@ -1778,9 +1778,9 @@ cmd_serve() {
   self="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)/$(basename "$0")"
   [[ -x "$self" ]] || self="$(command -v disksage 2>/dev/null || echo "$self")"
 
-  info "Running initial scan…"
-  DISKSAGE_SERVE=1 "$self" "${scan_flags[@]}" >&2 || warn "initial scan reported an issue (continuing)."
-
+  # Note: the initial scan is NOT run here — the server binds immediately and
+  # kicks it off in the background, so the window shows an instant disk-usage
+  # overview and streams findings in when the scan finishes.
   info "Serving DiskSage at http://127.0.0.1:$port  (Ctrl-C to stop)"
 
   SELF="$self" SERVE_SCANS_DIR="$SCANS_DIR" PORT="$port" SERVE_LANG="$DS_LANG" \
@@ -1795,6 +1795,20 @@ ja = os.environ.get("SERVE_LANG", "en") == "ja"
 scan_flags = shlex.split(os.environ.get("SCAN_FLAGS", "scan --html"))
 # Re-scans (and the delete-then-rescan) must also emit the findings sidecar.
 scan_env = {**os.environ, "DISKSAGE_SERVE": "1"}
+
+# The scan runs in a background thread so the window paints an instant overview
+# and streams findings in when the scan completes.
+scan_state = {"active": False}
+
+def do_scan():
+    scan_state["active"] = True
+    try:
+        subprocess.run([self_bin, *scan_flags], env=scan_env, check=False)
+    finally:
+        scan_state["active"] = False
+
+def trigger_scan():
+    threading.Thread(target=do_scan, daemon=True).start()
 
 # Only these patterns are offered for one-click Trash: their finding path IS the
 # thing to delete and is safe/recoverable. Excluded on purpose: electron_cache
@@ -1964,12 +1978,133 @@ def delete_panel():
         "</form></div>"
     ) % (esc(title), esc(note), "".join(rows), esc(btn))
 
+# Left navigation shared by every served page. `active` highlights the section.
+SHIFT_STYLE = "<style>body{padding-left:200px}@media(max-width:640px){body{padding-left:0}}</style>"
+
+def sidebar(active):
+    def item(href, icon, label, key):
+        bg = "background:#30363d;" if key == active else ""
+        return (f"<a href='{href}' style='display:block;padding:10px 12px;border-radius:8px;"
+                f"color:#fff;text-decoration:none;margin:2px 0;font-size:14px;{bg}'>"
+                f"{icon} {esc(label)}</a>")
+    scan_l = "スキャン" if ja else "Scan"
+    rep_l = "レポート" if ja else "Reports"
+    return (
+        "<nav style='position:fixed;left:0;top:0;bottom:0;width:200px;background:#1f2328;"
+        "color:#fff;padding:18px 14px;box-sizing:border-box;z-index:20;overflow:auto'>"
+        "<div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>"
+        + item("/", "🔍", scan_l, "scan")
+        + item("/reports", "📁", rep_l, "reports")
+        + "</nav>")
+
+def _human_kb(kb):
+    n = float(kb) * 1024
+    u = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    while n >= 1024 and i < len(u) - 1:
+        n /= 1024
+        i += 1
+    return ("%d %s" % (int(n), u[i])) if i == 0 else ("%.1f %s" % (n, u[i]))
+
+def disk_usage_html():
+    # Instant overview: group volumes by APFS container, one health-colored bar
+    # per container (green/amber/red by fullness). Same model as the report.
+    try:
+        out = subprocess.run(["df", "-Pk"], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return ""
+    groups = {}
+    for line in out.splitlines()[1:]:
+        p = line.split()
+        if len(p) < 6 or not p[0].startswith("/dev/"):
+            continue
+        try:
+            sz, _us, av = int(p[1]), int(p[2]), int(p[3])
+        except ValueError:
+            continue
+        groups.setdefault(sz, []).append({"avail": av, "used": int(p[2]), "mount": " ".join(p[5:])})
+    free_word = "空き" if ja else "free"
+    parts = []
+    for size in sorted(groups, reverse=True):
+        members = groups[size]
+        free = max(m["avail"] for m in members)
+        used = size - free
+        pct = (used * 100 // size) if size else 0
+        mounts = [m["mount"] for m in members]
+        label = ("起動ディスク" if ja else "Startup disk") if "/" in mounts \
+            else max(members, key=lambda m: m["used"])["mount"]
+        color = "#d1242f" if pct >= 90 else ("#bf8700" if pct >= 75 else "#1a7f37")
+        parts.append(
+            f"<div style='margin:10px 0'>"
+            f"<div style='font-weight:600'>{esc(label)}</div>"
+            f"<div style='display:flex;align-items:center;gap:10px'>"
+            f"<span style='flex:1;height:12px;background:#e6e6e6;border-radius:6px;overflow:hidden'>"
+            f"<span style='display:block;height:100%;width:{min(pct,100)}%;background:{color}'></span></span>"
+            f"<span style='white-space:nowrap;color:#57606a;font-size:13px'>"
+            f"{esc(_human_kb(used))} / {esc(_human_kb(size))} ({pct}%) · {free_word} {esc(_human_kb(free))}"
+            f"</span></div></div>")
+    return "".join(parts)
+
+def overview_page():
+    # Shown instantly while the first scan runs in the background.
+    scanning = "初回スキャンを実行中… ディスクを解析しています" if ja \
+        else "Running the first scan… analyzing your disk"
+    detail = "検出結果（詳細）はまもなく表示されます" if ja \
+        else "Findings (details) will appear here shortly"
+    h_disk = "📊 現在のディスク使用量" if ja else "📊 Current Disk Usage"
+    body = (
+        f"<!doctype html><html lang='{'ja' if ja else 'en'}'><head><meta charset='utf-8'>"
+        f"<meta http-equiv='refresh' content='2'>"
+        f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>DiskSage</title>{SHIFT_STYLE}</head>"
+        f"<body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;"
+        f"margin:0;background:#f6f8fa;color:#1f2328'>"
+        f"{sidebar('scan')}"
+        f"<div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;"
+        f"border-radius:12px;padding:28px 32px'>"
+        f"<h2 style='font-size:16px;margin:6px 0 12px'>{h_disk}</h2>"
+        f"{disk_usage_html()}"
+        f"<div style='margin-top:22px;padding:14px 16px;background:#ddf4ff;border:1px solid #b6e3ff;"
+        f"border-radius:8px;font-size:14px'>🔍 {esc(scanning)}"
+        f"<div style='color:#57606a;font-size:12px;margin-top:4px'>{esc(detail)}</div></div>"
+        f"</div></body></html>")
+    return body.encode("utf-8")
+
+def reports_page():
+    reps = all_reports()
+    title = "📁 レポート履歴" if ja else "📁 Report history"
+    intro = ("各スキャンは、その時点の“断面”。クリックで開けます。" if ja
+             else "Each scan is a point-in-time snapshot. Click one to open it.")
+    latest = "最新" if ja else "latest"
+    rows = []
+    for i, (stamp, _f) in enumerate(reps):
+        tag = (f" <span style='color:#1a7f37;font-size:12px'>· {latest}</span>") if i == 0 else ""
+        rows.append(
+            f"<a href='/?report={esc(stamp)}' style='display:flex;justify-content:space-between;"
+            f"align-items:center;padding:12px 14px;border:1px solid #d0d7de;border-radius:8px;"
+            f"margin:8px 0;text-decoration:none;color:#1f2328;background:#fff'>"
+            f"<span>{esc(friendly(stamp))}{tag}</span><span style='color:#57606a'>→</span></a>")
+    listing = "".join(rows) if rows else \
+        f"<p style='color:#57606a'>{esc(empty_msg)}</p>"
+    body = (
+        f"<!doctype html><html lang='{'ja' if ja else 'en'}'><head><meta charset='utf-8'>"
+        f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>DiskSage — {esc(title)}</title>{SHIFT_STYLE}</head>"
+        f"<body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;"
+        f"margin:0;background:#f6f8fa;color:#1f2328'>"
+        f"{sidebar('reports')}"
+        f"<div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;"
+        f"border-radius:12px;padding:28px 32px'>"
+        f"<h2 style='font-size:18px;margin:2px 0 4px'>{esc(title)}</h2>"
+        f"<div style='color:#57606a;font-size:13px;margin-bottom:14px'>{esc(intro)}</div>"
+        f"{listing}</div></body></html>")
+    return body.encode("utf-8")
+
 def page(report_param=None):
     reports = all_reports()
     if not reports:
-        return ("<!doctype html><meta charset=utf-8>"
-                "<body style='font-family:sans-serif;padding:40px'>"
-                + toolbar("", []) + "<p>" + empty_msg + "</p></body>").encode("utf-8")
+        # No report yet → instant disk-usage overview while the scan runs.
+        return overview_page()
     by_stamp = dict(reports)
     newest_stamp = reports[0][0]
     # Validate against known stamps (prevents path traversal / arbitrary files).
@@ -1977,12 +2112,19 @@ def page(report_param=None):
     is_current = (selected == newest_stamp)
     with open(by_stamp[selected], encoding="utf-8") as h:
         doc = h.read()
+    # Add the left nav + shift the report content right to make room.
+    if "</head>" in doc:
+        doc = doc.replace("</head>", SHIFT_STYLE + "</head>", 1)
     marker = "<div class='wrap'>"
     if marker in doc:
         # Delete panel only for the current report (old ones may be stale).
-        inject = toolbar(selected, reports)
+        inject = sidebar("scan") + toolbar(selected, reports)
         inject += delete_panel() if is_current else old_banner(selected)
         doc = doc.replace(marker, marker + inject, 1)
+    # While a (re)scan is running, auto-refresh the current view so the fresh
+    # results replace it when ready.
+    if is_current and scan_state["active"] and "</head>" in doc:
+        doc = doc.replace("</head>", "<meta http-equiv='refresh' content='3'></head>", 1)
     return doc.encode("utf-8")
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -2001,6 +2143,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if parsed.path in ("/", "/index.html"):
             report = (urllib.parse.parse_qs(parsed.query).get("report") or [None])[0]
             self._send(200, page(report))
+        elif parsed.path == "/reports":
+            self._send(200, reports_page())
         elif parsed.path == "/favicon.ico":
             self._send(204)
         else:
@@ -2009,7 +2153,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         if path == "/rescan":
-            subprocess.run([self_bin, *scan_flags], env=scan_env, check=False)
+            # Non-blocking: kick off the scan and return immediately; the page
+            # auto-refreshes and shows the fresh report when it's ready.
+            trigger_scan()
             self._send(303, b"", headers={"Location": "/"})
         elif path == "/delete":
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -2021,7 +2167,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             valid = [p for p in requested if p in allowed]
             if valid:
                 to_trash(valid)
-            subprocess.run([self_bin, *scan_flags], env=scan_env, check=False)
+            trigger_scan()
             self._send(303, b"", headers={"Location": "/"})
         else:
             self._send(404, b"not found")
@@ -2034,6 +2180,8 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 httpd = Server(("127.0.0.1", port), Handler)
+# Kick off the first scan in the background so the window paints immediately.
+trigger_scan()
 # Auto-open the browser, unless suppressed (e.g. when embedded in the Tauri app,
 # which displays the same URL inside its own native window).
 if not os.environ.get("DISKSAGE_NO_BROWSER"):
