@@ -150,6 +150,8 @@ lbl_free=free
 disk_volnote=Volumes below share this container'"'"'s free space:
 h_flow=📈 Recently Grown Files (> 500 MB, last 30 days)
 flow_none=_No recently grown large files detected._
+flow_archive=← move to external
+flow_media_note=💡 Caches are safe to just delete — but photos, videos and project files here are irreplaceable. Copy them to an external drive / USB first, then delete. DiskSage never deletes anything for you.
 h_flow_plain=📈 Recently Grown Files
 flow_skipped=_Skipped (`--quick` mode). Re-run `disksage scan` without `--quick` to include this section._
 h_next=💡 Next Steps
@@ -210,6 +212,8 @@ lbl_free=空き
 disk_volnote=以下のボリュームはこの容器の空きを共有します:
 h_flow=📈 最近増えたファイル（500MB超・直近30日）
 flow_none=_最近増えた大きなファイルは見つかりませんでした。_
+flow_archive=← 外付けへ退避
+flow_media_note=💡 キャッシュはそのまま削除でOK。でも写真・動画・制作ファイルは二度と戻せません。まず外付けドライブ / USB にコピーしてから削除してください。DiskSage は自動削除しません。
 h_flow_plain=📈 最近増えたファイル
 flow_skipped=_スキップしました（`--quick` モード）。この欄を含めるには `--quick` なしで `disksage scan` を再実行してください。_
 h_next=💡 次のステップ
@@ -565,9 +569,21 @@ render_flow_type_section() {
   echo
   echo '```'
   printf '%s\n' "$rows" | while IFS=$'\t' read -r sz path; do
-    printf '%-10s  %s\n' "$(human_size "$sz")" "$(tildify "$path")"
+    # Flag irreplaceable media (photos/videos/audio/project files): these should
+    # be moved to external storage, not simply deleted like a cache.
+    local lc mark=""
+    lc=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
+    case "$lc" in
+      *.mov|*.mp4|*.m4v|*.avi|*.mkv|*.webm|*.mpg|*.mpeg|*.wmv|*.flv|\
+      *.jpg|*.jpeg|*.png|*.heic|*.heif|*.tiff|*.tif|*.gif|*.raw|*.cr2|*.cr3|*.nef|*.arw|*.dng|*.psd|\
+      *.wav|*.aif|*.aiff|*.flac|*.mp3|*.m4a|*.logicx|*.band|*.ptx|*.als)
+        mark="  $(t flow_archive)" ;;
+    esac
+    printf '%-10s  %s%s\n' "$(human_size "$sz")" "$(tildify "$path")" "$mark"
   done
   echo '```'
+  echo
+  echo "$(t flow_media_note)"
 }
 
 render_disk_usage() {
@@ -702,7 +718,7 @@ render_html() {
     for key in title h_disk h_findings no_findings \
                sev_high sev_medium sev_low sev_safe sev_info \
                lbl_path lbl_size lbl_action lbl_startup lbl_used lbl_free \
-               disk_volnote h_flow flow_none \
+               disk_volnote h_flow flow_none flow_archive flow_media_note \
                h_flow_plain flow_skipped h_next next1 next2 next3 next4; do
       printf '%s\t%s\n' "$key" "$(t "$key")"
     done
@@ -997,12 +1013,27 @@ else:
     if not rows:
         w("<p class='empty'>%s</p>" % esc(lbl("flow_none").strip("_")))
     else:
+        MEDIA_EXT = (".mov", ".mp4", ".m4v", ".avi", ".mkv", ".webm", ".mpg",
+                     ".mpeg", ".wmv", ".flv", ".jpg", ".jpeg", ".png", ".heic",
+                     ".heif", ".tiff", ".tif", ".gif", ".raw", ".cr2", ".cr3",
+                     ".nef", ".arw", ".dng", ".psd", ".wav", ".aif", ".aiff",
+                     ".flac", ".mp3", ".m4a", ".logicx", ".band", ".ptx", ".als")
+        any_media = False
         for r in rows:
             if "\t" not in r:
                 continue
             sz, p = r.split("\t", 1)
-            w("<div class='row'><code>%s</code> &nbsp; %s</div>"
-              % (esc(human(sz)), esc(tildify(p))))
+            mark = ""
+            if p.lower().endswith(MEDIA_EXT):
+                any_media = True
+                mark = ("&nbsp; <span style='color:#bf8700;font-size:12px'>%s</span>"
+                        % esc(lbl("flow_archive")))
+            w("<div class='row'><code>%s</code> &nbsp; %s%s</div>"
+              % (esc(human(sz)), esc(tildify(p)), mark))
+        if any_media:
+            w("<div class='row' style='margin-top:10px;padding:12px 14px;"
+              "background:#fff8c5;border:1px solid #eac54f;border-radius:8px;"
+              "font-size:13px'>%s</div>" % esc(lbl("flow_media_note")))
 
 # Next steps
 w("<h2>%s</h2>" % esc(lbl("h_next")))
@@ -2366,6 +2397,39 @@ cmd_top() {
   printf '     run %sdisksage scan%s for per-pattern advice (and %s--ai%s for judgment).\n' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
 }
 
+cmd_df() {
+  # Instant free-space view — no scan, no du. A smarter `df -h /`: groups
+  # volumes by APFS container (one honest "X% full" per disk) and reports the
+  # local snapshot count, which is the usual reason free space "shrinks by
+  # itself" (each snapshot pins recently-deleted blocks until it's released).
+  resolve_lang
+  render_disk_usage
+  local snaps
+  snaps=$(tmutil listlocalsnapshots / 2>/dev/null | grep -Ec 'com\.apple' || true)
+  snaps="${snaps:-0}"
+  if [[ "$DS_LANG" == "ja" ]]; then
+    if (( snaps > 0 )); then
+      printf 'ローカルスナップショット: %s 個 — 各スナップショットは削除済みブロックを保持するため、\n' "$snaps"
+      printf '  何もしなくても空きが減る主因になります。%s一覧: tmutil listlocalsnapshots /%s\n' "$C_BOLD" "$C_RESET"
+      printf '  %s（OSアップデート中の com.apple.os.update-* は更新完了で自動的に消えます）%s\n' "$C_DIM" "$C_RESET"
+    else
+      printf 'ローカルスナップショット: なし\n'
+    fi
+    printf '\n%sヒント:%s 詳しい内訳は %sdisksage scan%s、大きいフォルダは %sdisksage top%s。\n' \
+      "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+  else
+    if (( snaps > 0 )); then
+      printf 'Local snapshots: %s — each one pins recently-deleted blocks, so free\n' "$snaps"
+      printf '  space can shrink on its own. %sList: tmutil listlocalsnapshots /%s\n' "$C_BOLD" "$C_RESET"
+      printf '  %s(com.apple.os.update-* snapshots clear automatically once the OS update finishes)%s\n' "$C_DIM" "$C_RESET"
+    else
+      printf 'Local snapshots: none\n'
+    fi
+    printf '\n%sTip:%s run %sdisksage scan%s for the full breakdown, %sdisksage top%s for big folders.\n' \
+      "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+  fi
+}
+
 cmd_version() { echo "disksage v$VERSION"; }
 
 cmd_help() {
@@ -2465,6 +2529,20 @@ Usage: disksage trend
 Print disk usage history from previously collected snapshots.
 EOF
       ;;
+    df|usage)
+      cat <<EOF
+Usage: disksage df
+
+Instant free-space view — no scan, no du walk. A smarter 'df -h /':
+  - groups volumes by APFS container, so you see one honest "X% full" per
+    physical disk instead of a misleading per-volume percentage
+  - reports the local APFS snapshot count, which is the usual reason free
+    space "shrinks by itself" (each snapshot pins recently-deleted blocks).
+
+Read-only and instant. For the full per-pattern breakdown use 'disksage scan';
+for the biggest folders use 'disksage top'.
+EOF
+      ;;
     top)
       cat <<EOF
 Usage: disksage top [N]
@@ -2496,6 +2574,7 @@ Commands:
   trend             Show disk usage history over time.
   reports           List saved scan reports (each is a point-in-time snapshot).
   top [N]           Biggest folders across your home, largest first (default 20).
+  df                Instant disk free space (per APFS container) + snapshot count.
   version           Print version.
   help [command]    Show this help, or help for a specific command.
 
@@ -2523,6 +2602,7 @@ main() {
     trend)                 cmd_trend "$@" ;;
     reports)               cmd_reports "$@" ;;
     top)                   cmd_top "$@" ;;
+    df|usage)              cmd_df "$@" ;;
     version|--version|-v)  cmd_version ;;
     help|--help|-h)        cmd_help "$@" ;;
     *)                     die "unknown command: $cmd  (try: disksage help)" ;;

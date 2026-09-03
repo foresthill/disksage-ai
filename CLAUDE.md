@@ -47,6 +47,8 @@
   - `trend` — 時系列表示
   - `reports` — 保存済みレポート一覧（時刻・`[html]`印）。各スキャンは `~/.disksage/scans/<stamp>.md`/`.html`/`.findings.tsv` として蓄積＝時系列の"断面"
   - `top [N]` — home 配下の**大きいフォルダ順**（DaisyDisk/Google Drive的）。`du -shx` で $HOME直下＋Library各subdir＋主要隠しキャッシュを集計しサイズ順表示。`cmd_top`。読み取り専用。**高速化済み**：各ルートを**並列 du**（temp file 分離→cat→sort）＝実機 ~23秒（旧: 逐次で120秒超タイムアウト）
+  - `df`（別名 `usage`）— **スキャンなしの即・空き容量**（`cmd_df`）。`render_disk_usage` を再利用しコンテナ単位の「X% full」＋**ローカルスナップショット数**を表示。スナップショット>0 なら「削除済みブロックを保持＝何もしなくても空きが減る主因」と説明（`com.apple.os.update-*` は OS更新完了で自動消滅、と明記）。i18n対応。ユーザーの「df -h / の機能ないの？」＋「みるみる減る」現象への回答。実機で OS更新の準備スナップショット3個が空きを握り→解放で ~12GB 戻る挙動を実測確認（＝この現象は連続漏れでなくOS更新準備の"波"）
+  - flow-type に**メディア退避アドバイス ✅**：「最近増えたファイル」の各行を拡張子で判定し、写真/動画/音声/制作ファイル（mov/mp4/heic/jpg/png/wav/logicx/psd/als 等）に `← 外付けへ退避` マーク＋フッタ注記「キャッシュは削除OK・でも写真/動画/制作ファイルは二度と戻せない→USB/外付けへコピーしてから削除」。md は `render_flow_type_section`（bash 3.2互換の `tr`+case 判定）、HTML は `render_html` 内 python `endswith(MEDIA_EXT)`＋黄色バナー。VMディスク(rootfs.img)等の非メディアは無印。カタログ `flow_archive`/`flow_media_note`。ユーザー指摘「キャッシュは削除でいいが写真・動画は退避 or 削除のアドバイスを」への対応
 - スキャン高速化 ✅：flow-type(`find_flow_type_files`) は `node_modules`/`.git`/`Caches`/`.cache` を **-prune** して探索（実機 120秒超→66秒）。それらは集計パターンで別途検出済＝除外で高速化かつ blob 誤検出も解消。`top` は並列 du 化（→23秒）。実利用で判明した「勝手に増える」正体は Claude VM img(rootfs.img 10GB)・Zoom録画等＝flow-type が正しく拾う
 - pattern check 並列化 ✅：`cmd_scan` の check_* を**バックグラウンド並列実行**（各 `$cdir/<name>` に出力→`wait`→cat）。library_caches(33GBの du)等が重く逐次だと --quick でも ~46秒かかっていたのを **~22秒**に短縮。wall-time≈最遅チェック。desktop の初回ロード遅延を解消するため導入
   - `help` / `version`
