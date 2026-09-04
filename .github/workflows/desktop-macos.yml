@@ -1,0 +1,70 @@
+name: Desktop (macOS)
+
+# Builds the DiskSage desktop app (Tauri v2) for macOS.
+#   - push a tag like `v0.1.0`  → builds a universal .dmg and publishes it to a
+#     (draft) GitHub Release for that tag.
+#   - manual "Run workflow"     → builds only, uploads the .dmg/.app as a
+#     workflow artifact (no release) — handy for verifying the pipeline.
+#
+# The app is currently a thin Tauri (Rust) shell that launches the macOS-only
+# `disksage` bash engine (serve). Windows/Linux need the engine ported to Rust
+# first (project Phase 3), so this workflow is macOS-only on purpose.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build macOS app
+    runs-on: macos-latest
+    permissions:
+      contents: write # tauri-action creates/updates the GitHub Release on tags
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up Rust (Intel + Apple Silicon targets for a universal build)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./desktop/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: bun install
+
+      - name: Build (and release on tags)
+        id: tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./desktop
+          # Only set a tag (→ create a Release) when triggered by a tag push.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: DiskSage ${{ github.ref_name }}
+          releaseBody: |
+            macOS build of the DiskSage desktop app (Tauri).
+            Universal binary (Intel + Apple Silicon).
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin
+
+      - name: Upload .dmg/.app artifact (manual runs)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: disksage-macos
+          path: |
+            desktop/src-tauri/target/**/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/**/release/bundle/macos/*.app
+          if-no-files-found: warn
