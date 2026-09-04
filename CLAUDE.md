@@ -89,6 +89,12 @@
 - 理由：依存最小、ロジック固定のために手早く書く、OSS 受け入れやすい
 - Python 3 は macOS 標準で入ってるのでJSONの読み書きに使用
 
+### Phase B（進行中）: Rust エンジン化 PoC
+
+- `engine/` — **Rust クロスプラットフォームエンジンの PoC ✅（ローカルビルド＆実行検証済）**。`disksage-engine df` が bash の `disksage df` 相当を再現。ディスク列挙は **`sysinfo`**（mac/win/linux 共通）、APFSスナップショット数は macOS 限定（`cfg(target_os="macos")` で tmutil、他OSは n/a）。`df`/`df --json` の2出力。将来 Tauri から in-process 呼び出し（bash spawn を廃止）する土台。
+- **実測で判明した設計上の知見**：`sysinfo` は**コンテナ全体の「X% full」は概ね正確**だが、macOS APFS では **①ボリューム単位 used がコンテナ全体usedに潰れる ②一部ボリューム(xarts等)を列挙しない**。→ 忠実な内訳が要る箇所は Unix で `df`/statvfs 併用、`sysinfo` は可搬フォールバック（＆Windows経路）という方針。`cargo build` 7.8秒・target は gitignore（`target/`）
+- 次の移植候補：`scan` のパターンチェック（OS非依存のものから）
+
 ### 将来 Phase（0.3+）: Rust リライト
 
 - スキャンエンジンを Rust (walkdir, tokio) に

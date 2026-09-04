@@ -13,3 +13,6 @@
 
 # Built macOS app bundle (generate with scripts/make-app.sh)
 DiskSage.app/
+
+# Rust build output (engine/ PoC, desktop/src-tauri)
+target/

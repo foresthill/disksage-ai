@@ -1,0 +1,18 @@
+[package]
+name = "disksage-engine"
+version = "0.0.1"
+edition = "2021"
+description = "Cross-platform DiskSage engine (PoC). Reimplements the bash CLI's logic in Rust so it can run natively on macOS, Windows and Linux."
+license = "Apache-2.0"
+
+[[bin]]
+name = "disksage-engine"
+path = "src/main.rs"
+
+[dependencies]
+# Cross-platform disk enumeration (total/available space per mount) — the whole
+# point of the Rust port: one code path for macOS, Windows and Linux.
+sysinfo = "0.32"
+
+[profile.release]
+strip = true
