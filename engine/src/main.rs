@@ -1,8 +1,9 @@
-// DiskSage engine — Rust port, PoC (Phase B, step 1).
+// DiskSage engine — Rust port, PoC (Phase B).
 //
-// Goal of this PoC: reproduce `disksage df` (the instant, scan-free disk view)
-// in Rust, so its output can be diffed against the bash implementation and the
-// port can grow one command at a time while staying verifiable.
+// Reproduces bash commands in Rust one at a time, so each can be diffed against
+// the bash implementation and the port grows while staying verifiable:
+//   - `df`   — instant, scan-free disk view (this file)
+//   - `scan` — directory-size patterns (see scan.rs)
 //
 // Cross-platform by design:
 //   - disk enumeration uses `sysinfo` (works on macOS, Windows, Linux)
@@ -10,26 +11,15 @@
 //     platforms simply report "not available" rather than shelling out.
 //
 // Usage:
-//   disksage-engine df            human-readable, like `disksage df`
-//   disksage-engine df --json     machine-readable, for diffing against bash
+//   disksage-engine df   [--json]
+//   disksage-engine scan [--json]
+
+mod scan;
+mod util;
 
 use std::collections::BTreeMap;
 use sysinfo::Disks;
-
-fn human(bytes: u64) -> String {
-    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut n = bytes as f64;
-    let mut i = 0;
-    while n >= 1024.0 && i < UNITS.len() - 1 {
-        n /= 1024.0;
-        i += 1;
-    }
-    if i == 0 {
-        format!("{} {}", bytes, UNITS[0])
-    } else {
-        format!("{:.1} {}", n, UNITS[i])
-    }
-}
+use util::human;
 
 /// One mounted volume.
 struct Volume {
@@ -119,8 +109,7 @@ fn cmd_df_human() {
     match snapshot_count() {
         Some(0) => println!("Local snapshots: none"),
         Some(n) => println!(
-            "Local snapshots: {} — each one pins recently-deleted blocks, so free space can shrink on its own.",
-            n
+            "Local snapshots: {n} — each one pins recently-deleted blocks, so free space can shrink on its own."
         ),
         None => println!("Local snapshots: n/a on this platform"),
     }
@@ -149,24 +138,28 @@ fn cmd_df_json() {
         Some(n) => n.to_string(),
         None => "null".to_string(),
     };
-    println!("{{\"containers\":[{}],\"snapshots\":{}}}", items, snaps);
+    println!("{{\"containers\":[{items}],\"snapshots\":{snaps}}}");
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let json = args.iter().any(|a| a == "--json");
     match args.first().map(String::as_str) {
         Some("df") => {
-            if args.iter().any(|a| a == "--json") {
+            if json {
                 cmd_df_json();
             } else {
                 cmd_df_human();
             }
         }
+        Some("scan") => scan::run(json),
         Some("--version") | Some("-v") => {
             println!("disksage-engine {}", env!("CARGO_PKG_VERSION"));
         }
         _ => {
-            eprintln!("disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine --version");
+            eprintln!(
+                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine --version"
+            );
             std::process::exit(2);
         }
     }
