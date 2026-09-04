@@ -11,8 +11,10 @@ can grow one command at a time while staying verifiable.
 ## Try it
 
 ```bash
-cargo run --release -- df          # human-readable, like `disksage df`
-cargo run --release -- df --json   # machine-readable, for diffing
+cargo run --release -- df            # instant disk view, like `disksage df`
+cargo run --release -- df --json
+cargo run --release -- scan          # directory-size findings, like `disksage scan`
+cargo run --release -- scan --json
 ```
 
 ## What works
@@ -23,6 +25,13 @@ cargo run --release -- df --json   # machine-readable, for diffing
   `render_disk_usage`).
 - APFS local snapshot count on macOS (behind a `cfg(target_os = "macos")` gate;
   other platforms report "n/a" rather than shelling out).
+- **`scan`** — the two OS-agnostic patterns, emitting findings (id, path, size,
+  severity, description, action) as text or JSON:
+  - `ollama_models` (`~/.ollama/models` > 10 GB)
+  - `node_modules_aggregate` (`~/Development` > 10 GB)
+  - directory sizing counts allocated blocks (`st_blocks`) on Unix to match `du`,
+    and falls back to logical length on Windows; symlinks are not followed and
+    unreadable entries are skipped (the bash engine's error tolerance).
 
 ## Verified findings (why the PoC matters)
 
@@ -40,7 +49,13 @@ OS, but on macOS APFS it does not reproduce `df -Pk`'s faithful per-volume
 breakdown. Where that detail matters, the Unix path should read `df` / `statvfs`
 per mount; `sysinfo` remains the portable fallback (and the Windows path).
 
+For `scan`, the first sizing attempt (logical file length) came in ~1.3 GiB under
+`du`; switching to allocated blocks (`st_blocks × 512`) on Unix closed the gap —
+Rust 17.6 GiB vs bash `du` 17.4 GiB, the ~0.17 GiB residual being live changes in
+`~/Development` between the two measurements, not a systematic error.
+
 ## Status
 
 `0.0.x` — PoC. Not wired into the CLI or the desktop app. Next candidates to
-port: `scan` pattern checks (starting with the OS-agnostic ones).
+port: more `scan` patterns — the remaining OS-agnostic ones, then macOS-specific
+ones behind `cfg` gates (iOS backups, CoreSimulator, tmutil snapshots).
