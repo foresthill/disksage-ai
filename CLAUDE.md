@@ -96,6 +96,11 @@
 - **`scan` 移植 ✅（B-b・ローカル検証済）**：`engine/src/scan.rs`＋`util.rs` に分割（main.rs肥大回避）。OS非依存パターン2つを findings 化（id/path/size/severity/description/action、text/json 出力）：`ollama_models`(~/.ollama/models>10GB)・`node_modules_aggregate`(~/Development>10GB)。`dir_size` は **Unix で `st_blocks×512`（＝du相当）/ Windows は logical len** の cfg分岐、symlink非追従・権限エラー許容（bashの罠回避）。**fidelity検証**：初回は論理サイズで du より ~1.3GiB 過少→ブロック基準に修正で **Rust 17.6GiB vs bash du 17.4GiB（差~1%＝測定間の実変化）** に一致。ollama は実機で空(0B)＝両者とも非検出で一致。clippy クリーン
 - 次の移植候補：残りの OS非依存パターン→その後 macOS固有を cfg gate で（iOSバックアップ・CoreSimulator・tmutilスナップショット）
 
+### メニューバー常駐（進行中）: SwiftBar/xbar プラグイン
+
+- `menubar/disksage.30s.sh` — **macOS メニューバーに空き容量を常時表示する SwiftBar/xbar プラグイン ✅（出力・エンジン連携・解決を実行検証／shellcheck clean）**。`disksage-engine df --json` を30秒毎に叩き `💾 16.5 GB` を表示、85%で橙・95%で赤に。ドロップダウンに free/used・スナップショット警告・「Open DiskSage UI…」（`disksage serve` 起動）。バイナリ解決は `$DISKSAGE_ENGINE`/`$DISKSAGE_BIN`→PATH→repo release→/usr/local→/opt/homebrew の順（`resolve()`）。**ユーザー発案**「右上バーに常駐＝0近くになる前に気づける」への回答＝DiskSage の中核価値（未然察知）の"アンビエント層"。**メニューバー描画自体は SwiftBar 導入が前提のため未検証**（出力markupは検証済）。本命は Tauri トレイ（`TrayIcon::set_title`＝macOS対応をAPIリファレンスで確認済、Win非対応/Linux部分）にエンジンを in-process 同梱する形。まずシェルプラグインで発想検証
+- 実測メモ: `resolve()` が `$DISKSAGE_ENGINE` を全名前の先頭候補にしていて「Open DiskSage UI」が engine を指すバグを**実行検証で発見・修正**（推測でなく走らせて発見）
+
 ### 将来 Phase（0.3+）: Rust リライト
 
 - スキャンエンジンを Rust (walkdir, tokio) に
