@@ -96,7 +96,7 @@
 - **`scan` 移植 ✅（B-b・ローカル検証済）**：`engine/src/scan.rs`＋`util.rs` に分割（main.rs肥大回避）。OS非依存パターン2つを findings 化（id/path/size/severity/description/action、text/json 出力）：`ollama_models`(~/.ollama/models>10GB)・`node_modules_aggregate`(~/Development>10GB)。`dir_size` は **Unix で `st_blocks×512`（＝du相当）/ Windows は logical len** の cfg分岐、symlink非追従・権限エラー許容（bashの罠回避）。**fidelity検証**：初回は論理サイズで du より ~1.3GiB 過少→ブロック基準に修正で **Rust 17.6GiB vs bash du 17.4GiB（差~1%＝測定間の実変化）** に一致。ollama は実機で空(0B)＝両者とも非検出で一致。clippy クリーン
 - 次の移植候補：残りの OS非依存パターン→その後 macOS固有を cfg gate で（iOSバックアップ・CoreSimulator・tmutilスナップショット）
 
-### メニューバー常駐: SwiftBar 実験（試行→撤去）＝本命は Tauri トレイ
+### メニューバー常駐 ✅: Tauri トレイ（SwiftBar 実験→撤去→自前トレイに置換）
 
 **アイデア（ユーザー発案）**: 空き容量を右上メニューバーに常時表示し「0近くになる前に気づく」＝DiskSage の中核価値（未然察知）のアンビエント層。**この発想は正しい**（実験中に実機が 923MB まで落ちたのを `💾` が赤で即警告＝有効性を実証）。
 
@@ -109,7 +109,8 @@
 
 **撤去内容**: `brew uninstall --cask swiftbar`＋プラグイン symlink＋`defaults delete com.ameba.SwiftBar`（2026-09-16 実施）。repo からも `menubar/` を削除。
 
-**本命（次にやる）**: **Tauri トレイ**にエンジンを in-process 同梱。`TrayIcon::set_title` が macOS 対応（[APIリファレンス](https://docs.rs/tauri/latest/tauri/tray/struct.TrayIcon.html)で確認済・Win非対応/Linux部分対応）。第一党アプリ・全コード自前・クロスプラットフォーム＝原則にも方針にも合致。実装知見メモ: SwiftBar プラグインの `resolve()` が `$DISKSAGE_ENGINE` を全名前の先頭候補にして「Open UI」が engine を指すバグを実行検証で発見済＝トレイ実装でもバイナリ解決は名前別に。
+**置換（実装済 ✅・ユーザー目視確認済）**: `desktop/src-tauri/src/lib.rs` に **Tauri トレイ**を実装。`setup_tray()`＝`TrayIconBuilder`（id=`disksage-tray`）で `set_title(free_title())` にバー表示、メニュー（Open DiskSage / Quit）、30秒毎に別スレッドから `tray_by_id().set_title()` で更新。空きは **`sysinfo` で in-process 取得**（`free_title()`＝起動ディスク`/`の available、fallback は最大disk）＝**サブプロセスも権限要求も無し**（SwiftBar の権限ダイアログ問題が消える）。Cargo に `tauri features=["tray-icon"]`＋`sysinfo`。`cargo build` 38秒で通過→起動・無クラッシュ→**ユーザーがメニューバーに `💾 <空き>` を目視確認**（2026-09-16）。`TrayIcon::set_title` は macOS対応/Win非対応/Linux部分（[APIリファレンス](https://docs.rs/tauri/latest/tauri/tray/struct.TrayIcon.html)）＝Win/Linux では将来アイコン＋tooltip＋メニューで空きを見せる。
+- 残（磨き込み）: Dockアイコン非表示でメニューバー専用化（`ActivationPolicy::Accessory`）／ログイン時自動起動／窓を閉じても常駐／配布は #17 の .dmg CI に同梱。engine crate との統合（現状 lib.rs が sysinfo を直呼び＝engine/ と df ロジック重複、将来 engine を lib 依存化して一本化）
 
 ### 将来 Phase（0.3+）: Rust リライト
 
