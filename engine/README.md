@@ -25,11 +25,20 @@ cargo run --release -- scan --json
   `render_disk_usage`).
 - APFS local snapshot count on macOS (behind a `cfg(target_os = "macos")` gate;
   other platforms report "n/a" rather than shelling out).
-- **`scan`** — the two OS-agnostic patterns, emitting findings (id, path, size,
-  severity, description, action) as text or JSON:
-  - `ollama_models` (`~/.ollama/models` > 10 GB)
-  - `node_modules_aggregate` (`~/Development` > 10 GB)
-  - directory sizing counts allocated blocks (`st_blocks`) on Unix to match `du`,
+- **`scan`** — directory/file-size patterns, emitting findings (id, path, size,
+  severity, description, action) as text or JSON. Cross-platform first, then
+  macOS paths that are simply skipped when absent (so a Linux run just won't see
+  them):
+  - `ollama_models` (`~/.ollama/models` > 10 GB) — cross-platform
+  - `user_cache` (`~/.cache` > 5 GB) — cross-platform
+  - `node_modules_aggregate` (`~/Development` > 10 GB) — cross-platform
+  - `library_caches` (`~/Library/Caches` > 5 GB) — macOS
+  - `xcode_derived_data` (`…/Xcode/DerivedData` > 5 GB) — macOS
+  - `ios_devicesupport` (`…/Xcode/iOS DeviceSupport` > 3 GB) — macOS
+  - `coresimulator_caches` (`…/CoreSimulator/Caches` > 1 GB) — macOS
+  - `docker_raw` (`…/com.docker.docker/…/Docker.raw` > 10 GB) — macOS
+  - New patterns are one `dir_pattern(...)` / `finding_if_over(...)` line each.
+  - Directory sizing counts allocated blocks (`st_blocks`) on Unix to match `du`,
     and falls back to logical length on Windows; symlinks are not followed and
     unreadable entries are skipped (the bash engine's error tolerance).
 
