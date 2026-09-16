@@ -95,7 +95,8 @@
 - `engine/` — **Rust クロスプラットフォームエンジンの PoC ✅（ローカルビルド＆実行検証済）**。`disksage-engine df` が bash の `disksage df` 相当を再現。ディスク列挙は **`sysinfo`**（mac/win/linux 共通）、APFSスナップショット数は macOS 限定（`cfg(target_os="macos")` で tmutil、他OSは n/a）。`df`/`df --json` の2出力。将来 Tauri から in-process 呼び出し（bash spawn を廃止）する土台。
 - **実測で判明した設計上の知見**：`sysinfo` は**コンテナ全体の「X% full」は概ね正確**だが、macOS APFS では **①ボリューム単位 used がコンテナ全体usedに潰れる ②一部ボリューム(xarts等)を列挙しない**。→ 忠実な内訳が要る箇所は Unix で `df`/statvfs 併用、`sysinfo` は可搬フォールバック（＆Windows経路）という方針。`cargo build` 7.8秒・target は gitignore（`target/`）
 - **`scan` 移植 ✅（B-b・ローカル検証済）**：`engine/src/scan.rs`＋`util.rs` に分割（main.rs肥大回避）。OS非依存パターン2つを findings 化（id/path/size/severity/description/action、text/json 出力）：`ollama_models`(~/.ollama/models>10GB)・`node_modules_aggregate`(~/Development>10GB)。`dir_size` は **Unix で `st_blocks×512`（＝du相当）/ Windows は logical len** の cfg分岐、symlink非追従・権限エラー許容（bashの罠回避）。**fidelity検証**：初回は論理サイズで du より ~1.3GiB 過少→ブロック基準に修正で **Rust 17.6GiB vs bash du 17.4GiB（差~1%＝測定間の実変化）** に一致。ollama は実機で空(0B)＝両者とも非検出で一致。clippy クリーン
-- 次の移植候補：残りの OS非依存パターン→その後 macOS固有を cfg gate で（iOSバックアップ・CoreSimulator・tmutilスナップショット）
+- **scan パターン量産 ✅（8パターン・bash照合済）**：`dir_pattern()`/`finding_if_over()`/`file_size()` ヘルパーで1行追加できる構造に。移植済＝`ollama_models`/`user_cache`(~/.cache)/`node_modules_aggregate`（以上クロスプラットフォーム）＋`library_caches`/`xcode_derived_data`/`ios_devicesupport`/`coresimulator_caches`/`docker_raw`（macパス＝不在OSでは自然にスキップ＝cfg gate 不要）。**bash `disksage scan` と実機照合**：node_modules 17.6 vs 17.5・library_caches 9.2 vs 8.7・user_cache 5.5=5.5・ios_devicesupport 4.5=4.5＝一致（差は測定タイミング）。閾値未満/不在も両者一致。clippy クリーン
+- 次の移植候補：複雑系（`iphone_backup`＝Manifest.db破損判定 / `apfs_snapshots`＝tmutil / `vm_swap`＝/private/var/vm、mac固有ロジック）→ その後 engine を desktop に in-process 統合（bash serve 廃止＝マルチプラットフォーム化の本丸②）
 
 ### メニューバー常駐 ✅: Tauri トレイ（SwiftBar 実験→撤去→自前トレイに置換）
 
