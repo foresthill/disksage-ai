@@ -15,6 +15,7 @@ readonly VERSION="0.1.0"
 DISKSAGE_HOME="${DISKSAGE_HOME:-$HOME/.disksage}"
 SCANS_DIR="$DISKSAGE_HOME/scans"
 TRENDS_DIR="$DISKSAGE_HOME/trends"
+CONFIG_FILE="$DISKSAGE_HOME/config"   # simple key=value (e.g. lang=ja)
 OS="$(uname)"
 
 # Report language (en|ja|…). Resolved at scan time from DISKSAGE_LANG/$LANG via
@@ -1091,12 +1092,46 @@ ai_resolve() {
   return 0
 }
 
-# Resolve the language for AI 'reasoning' text. DISKSAGE_LANG wins; otherwise
-# derive from the system locale ($LC_ALL/$LANG); falls back to "en". Returns a
-# lowercase 2-letter-ish code (e.g. ja, en, zh).
+# Read a value from the config file (simple `key=value` lines). Prints empty
+# if the file or key is absent. Cross-platform (plain text, no deps).
+ds_config_get() {
+  [[ -f "$CONFIG_FILE" ]] || return 0
+  local v
+  v="$(grep -E "^$1=" "$CONFIG_FILE" 2>/dev/null | tail -1)"
+  printf '%s' "${v#*=}"
+}
+
+# Set (replace) a `key=value` in the config file, creating it if needed.
+ds_config_set() {
+  ensure_dirs
+  local key="$1" val="$2" tmp
+  tmp="$(mktemp)"
+  [[ -f "$CONFIG_FILE" ]] && grep -vE "^$key=" "$CONFIG_FILE" > "$tmp" 2>/dev/null
+  printf '%s=%s\n' "$key" "$val" >> "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+}
+
+# Best-effort OS locale, used only when nothing more explicit is set. On macOS,
+# GUI-launched apps often have no $LANG, but the system locale lives in
+# AppleLocale (e.g. ja_JP). Other OSes rely on $LC_ALL/$LANG (handled by caller).
+os_locale() {
+  if command -v defaults >/dev/null 2>&1; then
+    defaults read -g AppleLocale 2>/dev/null && return 0
+  fi
+  return 0
+}
+
+# Resolve the report/AI language. Precedence, most explicit first:
+#   1. DISKSAGE_LANG env        (per-invocation override)
+#   2. config file `lang=`      (user's saved choice: `disksage config lang ja`)
+#   3. $LC_ALL / $LANG          (shell locale, often unset in GUI launches)
+#   4. macOS AppleLocale        (so Japanese users get ja without any setup)
+# Falls back to "en". Returns a lowercase code (e.g. ja, en, zh).
 ai_lang() {
   local l="${DISKSAGE_LANG:-}"
+  [[ -z "$l" ]] && l="$(ds_config_get lang)"
   [[ -z "$l" ]] && l="${LC_ALL:-${LANG:-}}"
+  [[ -z "$l" ]] && l="$(os_locale)"
   l="${l%%.*}"   # strip ".UTF-8"
   l="${l%%_*}"   # strip "_JP"
   l="$(printf '%s' "$l" | tr '[:upper:]' '[:lower:]')"
@@ -2430,6 +2465,37 @@ cmd_df() {
   fi
 }
 
+cmd_config() {
+  local key="${1:-}" val="${2:-}"
+  if [[ -z "$key" ]]; then
+    echo "Config file: $CONFIG_FILE"
+    if [[ -f "$CONFIG_FILE" ]]; then
+      sed 's/^/  /' "$CONFIG_FILE"
+    else
+      echo "  (nothing set yet)"
+    fi
+    resolve_lang
+    echo "Resolved report language: $DS_LANG"
+    return 0
+  fi
+  case "$key" in
+    lang)
+      if [[ -z "$val" ]]; then
+        local cur; cur="$(ds_config_get lang)"
+        resolve_lang
+        echo "lang = ${cur:-（unset → auto-detect）}"
+        echo "resolved = $DS_LANG"
+      else
+        ds_config_set lang "$val"
+        echo "Set lang=$val  →  $CONFIG_FILE"
+      fi
+      ;;
+    *)
+      die "unknown config key: $key  (supported: lang)"
+      ;;
+  esac
+}
+
 cmd_version() { echo "disksage v$VERSION"; }
 
 cmd_help() {
@@ -2543,6 +2609,22 @@ Read-only and instant. For the full per-pattern breakdown use 'disksage scan';
 for the biggest folders use 'disksage top'.
 EOF
       ;;
+    config)
+      cat <<EOF
+Usage: disksage config [lang [<code>]]
+
+Show or set DiskSage settings (stored in $CONFIG_FILE).
+
+  disksage config            Show current config and the resolved report language.
+  disksage config lang       Show the language setting and what it resolves to.
+  disksage config lang ja    Set the report/serve language to Japanese (or en, …).
+
+Language precedence (most explicit first): DISKSAGE_LANG env → this config →
+\$LC_ALL/\$LANG → macOS system locale (AppleLocale) → English. So Japanese users
+usually get Japanese automatically; set it here to force it (handy for GUI/serve
+launches that have no shell locale).
+EOF
+      ;;
     top)
       cat <<EOF
 Usage: disksage top [N]
@@ -2575,6 +2657,7 @@ Commands:
   reports           List saved scan reports (each is a point-in-time snapshot).
   top [N]           Biggest folders across your home, largest first (default 20).
   df                Instant disk free space (per APFS container) + snapshot count.
+  config            Show/set config (e.g. `disksage config lang ja`).
   version           Print version.
   help [command]    Show this help, or help for a specific command.
 
@@ -2603,6 +2686,7 @@ main() {
     reports)               cmd_reports "$@" ;;
     top)                   cmd_top "$@" ;;
     df|usage)              cmd_df "$@" ;;
+    config)                cmd_config "$@" ;;
     version|--version|-v)  cmd_version ;;
     help|--help|-h)        cmd_help "$@" ;;
     *)                     die "unknown command: $cmd  (try: disksage help)" ;;
