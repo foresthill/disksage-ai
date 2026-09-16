@@ -16,6 +16,7 @@
 
 mod scan;
 mod util;
+mod walk;
 
 use std::collections::BTreeMap;
 use sysinfo::Disks;

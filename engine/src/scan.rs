@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::util::{home_dir, human, json_escape};
+use crate::walk::{dir_size, file_size, has_file_named, node_modules_total, tildify};
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -22,87 +23,6 @@ pub struct Finding {
     pub severity: &'static str,
     pub description: String,
     pub action: String,
-}
-
-/// On-disk size of a single entry. On Unix we count allocated 512-byte blocks
-/// (`st_blocks`), which matches what `du` reports; elsewhere we fall back to the
-/// logical length. This keeps the Rust numbers aligned with the bash engine's
-/// `du`-based sizes on macOS/Linux while staying portable to Windows.
-#[cfg(unix)]
-fn entry_size(meta: &std::fs::Metadata) -> u64 {
-    use std::os::unix::fs::MetadataExt;
-    meta.blocks() * 512
-}
-#[cfg(not(unix))]
-fn entry_size(meta: &std::fs::Metadata) -> u64 {
-    meta.len()
-}
-
-/// Recursive on-disk size of a directory (sum of every entry's allocated size).
-/// Symlinks are not followed and unreadable entries are skipped, mirroring the
-/// bash engine's tolerance of per-file permission errors.
-fn dir_size(path: &Path) -> u64 {
-    let mut total = 0u64;
-    let entries = match std::fs::read_dir(path) {
-        Ok(e) => e,
-        Err(_) => return 0,
-    };
-    for entry in entries.flatten() {
-        let ft = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if ft.is_symlink() {
-            continue;
-        }
-        if let Ok(meta) = std::fs::symlink_metadata(entry.path()) {
-            total += entry_size(&meta);
-        }
-        if ft.is_dir() {
-            total += dir_size(&entry.path());
-        }
-    }
-    total
-}
-
-/// Total size of every `node_modules` directory under `root` (not descending
-/// into one once found — nested node_modules are already counted by their parent).
-fn node_modules_total(root: &Path) -> u64 {
-    let mut total = 0u64;
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return 0,
-    };
-    for entry in entries.flatten() {
-        let ft = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if ft.is_symlink() || !ft.is_dir() {
-            continue;
-        }
-        if entry.file_name() == "node_modules" {
-            total += dir_size(&entry.path());
-        } else {
-            total += node_modules_total(&entry.path());
-        }
-    }
-    total
-}
-
-/// Replace the home prefix with `~` for display, like the bash `tildify`.
-fn tildify(path: &Path) -> String {
-    if let Some(home) = home_dir() {
-        if let Ok(rest) = path.strip_prefix(&home) {
-            return format!("~/{}", rest.display());
-        }
-    }
-    path.display().to_string()
-}
-
-/// On-disk size of a single file (0 if unreadable).
-fn file_size(path: &Path) -> u64 {
-    std::fs::symlink_metadata(path).map(|m| entry_size(&m)).unwrap_or(0)
 }
 
 /// Push a finding when `size` exceeds `threshold`. Keeps each pattern to one line.
@@ -146,6 +66,107 @@ fn dir_pattern(
         finding_if_over(f, path, size, threshold, id, severity, label, action);
     }
 }
+
+/// iPhone backups (Apple's location + common third-party apps). A backup without
+/// Manifest.db cannot be restored — flagged high. macOS paths; skipped elsewhere.
+fn check_iphone_backup(f: &mut Vec<Finding>, home: &Path) {
+    let appsup = home.join("Library/Application Support");
+    let vendors: [(&str, PathBuf); 6] = [
+        ("Apple", appsup.join("MobileSync/Backup")),
+        ("iMobie", appsup.join("iMobie")),
+        ("AnyTrans", appsup.join("AnyTrans")),
+        ("3uTools", appsup.join("3uTools")),
+        ("DearMob", appsup.join("DearMob")),
+        ("iMazing", appsup.join("iMazing")),
+    ];
+    for (vendor, dir) in vendors {
+        if !dir.is_dir() {
+            continue;
+        }
+        let size = dir_size(&dir);
+        if size <= GIB {
+            continue; // ignore < 1 GB (empty shells / cache-only installs)
+        }
+        if has_file_named(&dir, "Manifest.db") {
+            f.push(Finding {
+                id: "iphone_backup",
+                path: tildify(&dir),
+                size,
+                severity: "medium",
+                description: format!("{vendor} iPhone backup: {}", human(size)),
+                action: "If you no longer need this device backup, delete it (archive to an external drive first if unsure).".into(),
+            });
+        } else {
+            f.push(Finding {
+                id: "iphone_backup",
+                path: tildify(&dir),
+                size,
+                severity: "high",
+                description: format!("{vendor} iPhone backup: {} — no Manifest.db, likely NOT restorable", human(size)),
+                action: "A backup without Manifest.db can't be restored. Verify in the app; if orphaned, delete it to reclaim space.".into(),
+            });
+        }
+    }
+}
+
+/// APFS local snapshots (Time Machine keeps deleted files alive). macOS only.
+#[cfg(target_os = "macos")]
+fn check_apfs_snapshots(f: &mut Vec<Finding>) {
+    let out = match std::process::Command::new("tmutil")
+        .args(["listlocalsnapshots", "/"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let n = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| l.contains("com.apple.TimeMachine"))
+        .count();
+    if n > 3 {
+        f.push(Finding {
+            id: "apfs_snapshots",
+            path: "/".into(),
+            size: 0,
+            severity: "high",
+            description: format!("APFS local snapshots: {n} present (each keeps recently-deleted files alive)"),
+            action: "List with 'tmutil listlocalsnapshots /'; delete an old one with 'sudo tmutil deletelocalsnapshots <date>'.".into(),
+        });
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn check_apfs_snapshots(_f: &mut Vec<Finding>) {}
+
+/// macOS swap + sleepimage under /private/var/vm. macOS only.
+#[cfg(target_os = "macos")]
+fn check_vm_swap(f: &mut Vec<Finding>) {
+    let vmdir = Path::new("/private/var/vm");
+    if !vmdir.is_dir() {
+        return;
+    }
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(vmdir) {
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("swapfile") || name == "sleepimage" {
+                total += file_size(&e.path());
+            }
+        }
+    }
+    if total > 5 * GIB {
+        f.push(Finding {
+            id: "vm_swap",
+            path: "/private/var/vm".into(),
+            size: total,
+            severity: "medium",
+            description: format!("macOS swap + sleepimage: {}", human(total)),
+            action: "A reboot resets swap (sleepimage returns). If chronic, more RAM is the real fix.".into(),
+        });
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn check_vm_swap(_f: &mut Vec<Finding>) {}
 
 fn collect() -> Vec<Finding> {
     let mut f = Vec::new();
@@ -204,6 +225,11 @@ fn collect() -> Vec<Finding> {
             "Docker Desktop → Troubleshoot → Clean/Purge, or 'docker system prune -a --volumes'.",
         );
     }
+
+    // --- Patterns with bespoke logic --------------------------------------
+    check_iphone_backup(&mut f, &home); // Manifest.db corruption check
+    check_apfs_snapshots(&mut f); // tmutil (macOS)
+    check_vm_swap(&mut f); // /private/var/vm (macOS)
 
     f
 }
