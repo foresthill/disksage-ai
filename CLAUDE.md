@@ -100,7 +100,8 @@
 - **ファイル分割 ✅**：`scan.rs` が376行になったため走査ヘルパーを **`walk.rs`**（`entry_size`/`dir_size`/`node_modules_total`/`file_size`/`has_file_named`/`tildify`）に分離＝全ファイル300行以下（main167/scan270/util49/walk114）。300行ソフト規律に準拠
 - 残る複雑系は無し（主要12パターン中 flow_type/electron_cache 以外は移植済＝ほぼ parity）。
 - **engine ライブラリ化 ✅（in-process統合の第一歩）**：engine を lib+bin に分割（`lib.rs`＝`pub mod df/scan/util/walk`、`df.rs` にデータ関数＋トレイ用 `startup_free()`、`main.rs` は薄いCLI）。`scan::collect()` も pub 化＝desktop から呼べる。engine ビルド0.3秒・clippy クリーン・CLI回帰OK。**desktop トレイが engine を in-process 呼び出し**（`disksage_engine::df::startup_free()`＝lib.rs の sysinfo 直呼び重複を解消）。desktop 側の検証は Tauri ビルドが要るため**CIで検証**（ローカル2GBビルド回避）
-- 本丸②の残り＝**serve 相当（scanレポートUIの配信）を Rust 化**して bash serve 依存を完全に断つ→Win/Linux 実現。今は tray のみ in-process、serve はまだ bash spawn
+- **Rust serve 化（本丸②）進行中**：`engine/src/serve.rs`＝純Rust HTTP（`tiny_http` 0.12・TLS無し/system依存なし）。`disksage-engine serve [--port N]`。**増分1 ✅**＝`/` にディスク使用量オーバービュー（`df::containers()` からバー生成＋スナップショット警告）＋左サイドバー（Scan/Reports/Settings、後2つは200スタブ）。実機で curl 検証（bash 不使用で UI 配信＝両コンテナの空き表示・404回避）。ビルド2.47秒・clippy クリーン・serve.rs 115行
+- **serve Rust化の残り増分**：② findings 表示（`scan::collect()` を背景実行＋progressive）→ ③ /reports 履歴 → ④ /settings（config書換）→ ⑤ 削除→ゴミ箱（macは osascript、他OSは trash-cli/gio）→ ⑥ i18n。全部揃ったら **desktop を `disksage-engine serve` 起動に切替**（bash `disksage serve` spawn を廃止）＝**Win/Linux 実現**。今は tray のみ in-process、レポートUIはまだ bash serve（desktop 既定）
 
 ### メニューバー常駐 ✅: Tauri トレイ（SwiftBar 実験→撤去→自前トレイに置換）
 

@@ -7,8 +7,8 @@
 // app can call it in-process too.
 
 use disksage_engine::df::{self, Volume};
-use disksage_engine::scan;
 use disksage_engine::util::human;
+use disksage_engine::{scan, serve};
 
 fn cmd_df_human() {
     println!("## Current Disk Usage\n");
@@ -85,12 +85,21 @@ fn main() {
             }
         }
         Some("scan") => scan::run(json),
+        Some("serve") => {
+            let port = args
+                .iter()
+                .position(|a| a == "--port")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(8765);
+            serve::run(port);
+        }
         Some("--version") | Some("-v") => {
             println!("disksage-engine {}", env!("CARGO_PKG_VERSION"));
         }
         _ => {
             eprintln!(
-                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine --version"
+                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine serve [--port N]\n  disksage-engine --version"
             );
             std::process::exit(2);
         }

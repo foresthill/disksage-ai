@@ -13,6 +13,9 @@ path = "src/main.rs"
 # Cross-platform disk enumeration (total/available space per mount) — the whole
 # point of the Rust port: one code path for macOS, Windows and Linux.
 sysinfo = "0.32"
+# Minimal pure-Rust HTTP server for the in-process `serve` UI (no TLS, no system
+# deps) — the path to replacing the macOS-only bash `serve`.
+tiny_http = "0.12"
 
 [profile.release]
 strip = true
