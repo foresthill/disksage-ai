@@ -98,7 +98,9 @@
 - **`scan` 移植 ✅（B-b・ローカル検証済）**：`engine/src/scan.rs`＋`util.rs` に分割（main.rs肥大回避）。OS非依存パターン2つを findings 化（id/path/size/severity/description/action、text/json 出力）：`ollama_models`(~/.ollama/models>10GB)・`node_modules_aggregate`(~/Development>10GB)。`dir_size` は **Unix で `st_blocks×512`（＝du相当）/ Windows は logical len** の cfg分岐、symlink非追従・権限エラー許容（bashの罠回避）。**fidelity検証**：初回は論理サイズで du より ~1.3GiB 過少→ブロック基準に修正で **Rust 17.6GiB vs bash du 17.4GiB（差~1%＝測定間の実変化）** に一致。ollama は実機で空(0B)＝両者とも非検出で一致。clippy クリーン
 - **scan パターン量産 ✅（11パターン・bash照合済）**：`dir_pattern()`/`finding_if_over()`/`file_size()` ヘルパーで1行追加できる構造。**単純系8**＝`ollama_models`/`user_cache`(~/.cache)/`node_modules_aggregate`（クロスプラットフォーム）＋`library_caches`/`xcode_derived_data`/`ios_devicesupport`/`coresimulator_caches`/`docker_raw`（macパス＝不在OSで自然にスキップ）。**複雑系3**＝`iphone_backup`（複数ベンダー location＋`has_file_named` で Manifest.db 再帰探索＝有→medium/無→high の破損判定・DiskSage 看板機能）／`apfs_snapshots`（`cfg(macos)` で tmutil の TimeMachine 数>3）／`vm_swap`（`cfg(macos)` で /private/var/vm の swapfile*＋sleepimage 合計>5GB）。**bash 実機照合**：単純系は数値一致（node_modules 17.6/17.5 等）、複雑系3は当機で全て閾値未満→**Rustもbashも「検出なし」で一致**（TimeMachine 0・sleepimage 2GBのみ・backup空/86M）。実測で「なし」が正しいことまで確認（tmutil/vmdir/backup 生値を突合）
 - **ファイル分割 ✅**：`scan.rs` が376行になったため走査ヘルパーを **`walk.rs`**（`entry_size`/`dir_size`/`node_modules_total`/`file_size`/`has_file_named`/`tildify`）に分離＝全ファイル300行以下（main167/scan270/util49/walk114）。300行ソフト規律に準拠
-- 次：残る複雑系は無し（主要12パターン中 flow_type/electron_cache 以外は移植済＝ほぼ parity）。本丸②＝**engine を desktop に in-process 統合**（bash serve 廃止→Win/Linux 実現）。engine を lib 化して desktop から呼ぶ or serve 相当を Rust 実装
+- 残る複雑系は無し（主要12パターン中 flow_type/electron_cache 以外は移植済＝ほぼ parity）。
+- **engine ライブラリ化 ✅（in-process統合の第一歩）**：engine を lib+bin に分割（`lib.rs`＝`pub mod df/scan/util/walk`、`df.rs` にデータ関数＋トレイ用 `startup_free()`、`main.rs` は薄いCLI）。`scan::collect()` も pub 化＝desktop から呼べる。engine ビルド0.3秒・clippy クリーン・CLI回帰OK。**desktop トレイが engine を in-process 呼び出し**（`disksage_engine::df::startup_free()`＝lib.rs の sysinfo 直呼び重複を解消）。desktop 側の検証は Tauri ビルドが要るため**CIで検証**（ローカル2GBビルド回避）
+- 本丸②の残り＝**serve 相当（scanレポートUIの配信）を Rust 化**して bash serve 依存を完全に断つ→Win/Linux 実現。今は tray のみ in-process、serve はまだ bash spawn
 
 ### メニューバー常駐 ✅: Tauri トレイ（SwiftBar 実験→撤去→自前トレイに置換）
 
@@ -114,7 +116,8 @@
 **撤去内容**: `brew uninstall --cask swiftbar`＋プラグイン symlink＋`defaults delete com.ameba.SwiftBar`（2026-09-16 実施）。repo からも `menubar/` を削除。
 
 **置換（実装済 ✅・ユーザー目視確認済）**: `desktop/src-tauri/src/lib.rs` に **Tauri トレイ**を実装。`setup_tray()`＝`TrayIconBuilder`（id=`disksage-tray`）で `set_title(free_title())` にバー表示、メニュー（Open DiskSage / Quit）、30秒毎に別スレッドから `tray_by_id().set_title()` で更新。空きは **`sysinfo` で in-process 取得**（`free_title()`＝起動ディスク`/`の available、fallback は最大disk）＝**サブプロセスも権限要求も無し**（SwiftBar の権限ダイアログ問題が消える）。Cargo に `tauri features=["tray-icon"]`＋`sysinfo`。`cargo build` 38秒で通過→起動・無クラッシュ→**ユーザーがメニューバーに `💾 <空き>` を目視確認**（2026-09-16）。`TrayIcon::set_title` は macOS対応/Win非対応/Linux部分（[APIリファレンス](https://docs.rs/tauri/latest/tauri/tray/struct.TrayIcon.html)）＝Win/Linux では将来アイコン＋tooltip＋メニューで空きを見せる。
-- 残（磨き込み）: Dockアイコン非表示でメニューバー専用化（`ActivationPolicy::Accessory`）／ログイン時自動起動／窓を閉じても常駐／配布は #17 の .dmg CI に同梱。engine crate との統合（現状 lib.rs が sysinfo を直呼び＝engine/ と df ロジック重複、将来 engine を lib 依存化して一本化）
+- engine crate 統合 ✅：desktop の `free_title()` は `disksage_engine::df::startup_free()`＋`util::human()` を呼ぶ（sysinfo 直呼び重複を解消・CLI と同一ロジック）。desktop Cargo に `disksage-engine = { path = "../../engine" }`
+- 残（磨き込み）: Dockアイコン非表示でメニューバー専用化（`ActivationPolicy::Accessory`）／ログイン時自動起動／窓を閉じても常駐／配布は #17 の .dmg CI に同梱
 
 ### 将来 Phase（0.3+）: Rust リライト
 

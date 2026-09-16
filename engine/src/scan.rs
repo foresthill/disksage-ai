@@ -168,7 +168,7 @@ fn check_vm_swap(f: &mut Vec<Finding>) {
 #[cfg(not(target_os = "macos"))]
 fn check_vm_swap(_f: &mut Vec<Finding>) {}
 
-fn collect() -> Vec<Finding> {
+pub fn collect() -> Vec<Finding> {
     let mut f = Vec::new();
     let home = match home_dir() {
         Some(h) => h,

@@ -19,34 +19,14 @@ struct ServeProcess(Mutex<Option<Child>>);
 const TRAY_ID: &str = "disksage-tray";
 const REFRESH: Duration = Duration::from_secs(30);
 
-/// Human-readable byte size (1024-based), matching the CLI/engine.
-fn human(bytes: u64) -> String {
-    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut n = bytes as f64;
-    let mut i = 0;
-    while n >= 1024.0 && i < UNITS.len() - 1 {
-        n /= 1024.0;
-        i += 1;
-    }
-    if i == 0 {
-        format!("{bytes} {}", UNITS[0])
-    } else {
-        format!("{n:.1} {}", UNITS[i])
-    }
-}
-
-/// Free space of the startup disk (mount "/"), else the largest disk. Read
-/// in-process with sysinfo — no subprocess, no protected-folder access.
+/// Menu bar title: the startup disk's free space, computed in-process by the
+/// DiskSage engine (no subprocess, no protected-folder access → no permission
+/// dialogs). Same code path as the CLI, so the numbers always agree.
 fn free_title() -> String {
-    use sysinfo::Disks;
-    let disks = Disks::new_with_refreshed_list();
-    let free = disks
-        .iter()
-        .find(|d| d.mount_point() == Path::new("/"))
-        .or_else(|| disks.iter().max_by_key(|d| d.total_space()))
-        .map(|d| d.available_space())
-        .unwrap_or(0);
-    format!("💾 {}", human(free))
+    format!(
+        "💾 {}",
+        disksage_engine::util::human(disksage_engine::df::startup_free())
+    )
 }
 
 /// Locate the `disksage` CLI. GUI-launched apps often have a minimal PATH, so
