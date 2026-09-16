@@ -22,6 +22,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# In-process disk stats for the menu bar tray (no subprocess, cross-platform).
-sysinfo = "0.32"
+# The DiskSage engine, called in-process for disk stats (no subprocess). Sharing
+# the same crate keeps the tray's numbers identical to the CLI and is the basis
+# for eventually dropping the bash `serve` dependency.
+disksage-engine = { path = "../../engine" }
 
