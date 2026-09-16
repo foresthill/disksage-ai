@@ -2055,12 +2055,14 @@ def sidebar(active):
                 f"{icon} {esc(label)}</a>")
     scan_l = "スキャン" if ja else "Scan"
     rep_l = "レポート" if ja else "Reports"
+    set_l = "設定" if ja else "Settings"
     return (
         "<nav style='position:fixed;left:0;top:0;bottom:0;width:200px;background:#1f2328;"
         "color:#fff;padding:18px 14px;box-sizing:border-box;z-index:20;overflow:auto'>"
         "<div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>"
         + item("/", "🔍", scan_l, "scan")
         + item("/reports", "📁", rep_l, "reports")
+        + item("/settings", "⚙️", set_l, "settings")
         + "</nav>")
 
 def _human_kb(kb):
@@ -2166,6 +2168,82 @@ def reports_page():
         f"{listing}</div></body></html>")
     return body.encode("utf-8")
 
+def _config_path():
+    # $DISKSAGE_HOME/config — DISKSAGE_HOME is the parent of the scans dir.
+    return os.path.join(os.path.dirname(scans_dir.rstrip("/")), "config")
+
+def _config_lang():
+    try:
+        with open(_config_path(), encoding="utf-8") as h:
+            for line in h:
+                if line.startswith("lang="):
+                    return line.strip().split("=", 1)[1]
+    except OSError:
+        pass
+    return ""
+
+def set_config_lang(val):
+    # Replace (or remove, when val is empty) the `lang=` line. Validated to the
+    # offered options, so this never writes arbitrary content.
+    cfg = _config_path()
+    lines = []
+    try:
+        with open(cfg, encoding="utf-8") as h:
+            lines = [ln for ln in h if not ln.startswith("lang=")]
+    except OSError:
+        pass
+    if val:
+        lines.append("lang=%s\n" % val)
+    os.makedirs(os.path.dirname(cfg), exist_ok=True)
+    with open(cfg, "w", encoding="utf-8") as h:
+        h.writelines(lines)
+
+def settings_page(saved=False):
+    cur = _config_lang()
+    ds_home = os.path.dirname(scans_dir.rstrip("/"))
+    title = "⚙️ 設定" if ja else "⚙️ Settings"
+    lang_h = "レポートの言語" if ja else "Report language"
+    note = ("新しいスキャンから反映されます（UI全体の言語はアプリ再起動後に切替）。" if ja
+            else "Applies to new scans; restart the app to switch the whole UI language.")
+    opts = [("", "自動（システム）" if ja else "Auto (system)"),
+            ("ja", "日本語"), ("en", "English")]
+    radios = ""
+    for val, label in opts:
+        checked = "checked" if val == cur else ""
+        radios += (f"<label style='display:block;padding:7px 0;font-size:14px'>"
+                   f"<input type='radio' name='lang' value='{val}' {checked}> {esc(label)}</label>")
+    saved_banner = ""
+    if saved:
+        saved_banner = ("<div style='background:#dafbe1;border:1px solid #4ac26b;border-radius:8px;"
+                        "padding:10px 14px;margin-bottom:14px;font-size:14px'>✅ "
+                        + ("保存しました" if ja else "Saved") + "</div>")
+    info_h = "情報" if ja else "About"
+    never = ("DiskSage は何も自動削除しません。" if ja
+             else "DiskSage never deletes anything automatically.")
+    body = (
+        f"<!doctype html><html lang='{'ja' if ja else 'en'}'><head><meta charset='utf-8'>"
+        f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>DiskSage — {esc(title)}</title>{SHIFT_STYLE}</head>"
+        f"<body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;"
+        f"margin:0;background:#f6f8fa;color:#1f2328'>"
+        f"{sidebar('settings')}"
+        f"<div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;"
+        f"border-radius:12px;padding:28px 32px'>"
+        f"<h2 style='font-size:18px;margin:2px 0 14px'>{esc(title)}</h2>"
+        f"{saved_banner}"
+        f"<form method='post' action='/settings'>"
+        f"<h3 style='font-size:15px;margin:0 0 6px'>{esc(lang_h)}</h3>"
+        f"{radios}"
+        f"<div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{esc(note)}</div>"
+        f"<button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;"
+        f"padding:9px 18px;font-size:14px;cursor:pointer'>{'保存' if ja else 'Save'}</button>"
+        f"</form>"
+        f"<h3 style='font-size:15px;margin:24px 0 6px'>{esc(info_h)}</h3>"
+        f"<div style='color:#57606a;font-size:13px;line-height:1.7'>"
+        f"データ保存先: <code>{esc(ds_home)}</code><br>{esc(never)}</div>"
+        f"</div></body></html>")
+    return body.encode("utf-8")
+
 def page(report_param=None):
     reports = all_reports()
     if not reports:
@@ -2211,6 +2289,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(200, page(report))
         elif parsed.path == "/reports":
             self._send(200, reports_page())
+        elif parsed.path == "/settings":
+            saved = bool(urllib.parse.parse_qs(parsed.query).get("saved"))
+            self._send(200, settings_page(saved))
         elif parsed.path == "/favicon.ico":
             self._send(204)
         else:
@@ -2235,6 +2316,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 to_trash(valid)
             trigger_scan()
             self._send(303, b"", headers={"Location": "/"})
+        elif path == "/settings":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length).decode("utf-8") if length else ""
+            val = (urllib.parse.parse_qs(body).get("lang") or [""])[0]
+            if val in ("", "ja", "en"):  # whitelist the offered options
+                set_config_lang(val)
+            self._send(303, b"", headers={"Location": "/settings?saved=1"})
         else:
             self._send(404, b"not found")
 
