@@ -30,6 +30,14 @@ pub fn home_dir() -> Option<PathBuf> {
     }
 }
 
+/// Minimal HTML escaping for text dropped into served pages.
+pub fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// Minimal JSON string escaping (the engine emits JSON without a serde dependency
 /// to stay tiny; this covers the characters that appear in paths and messages).
 pub fn json_escape(s: &str) -> String {

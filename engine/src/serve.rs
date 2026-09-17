@@ -12,8 +12,9 @@ use std::thread;
 use tiny_http::{Header, Response, Server};
 
 use crate::df;
+use crate::reports;
 use crate::scan::{self, Finding};
-use crate::util::human;
+use crate::util::{esc, human};
 
 /// Shared scan state: findings are computed off the request path so `/` stays
 /// responsive while the (slow) directory walk runs.
@@ -33,14 +34,6 @@ fn trigger_scan(state: State) {
         s.findings = Some(found);
         s.scanning = false;
     });
-}
-
-/// Minimal HTML escaping for text we drop into the page.
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 fn sev_rank(s: &str) -> u8 {
@@ -199,26 +192,40 @@ pub fn run(port: u16) {
     let state: State = Arc::new(Mutex::new(ScanState::default()));
     trigger_scan(state.clone());
     eprintln!("DiskSage engine serving on http://127.0.0.1:{port}  (Ctrl-C to stop)");
+    let ctype = || {
+        Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr")
+    };
     for req in server.incoming_requests() {
-        let path = req.url().split('?').next().unwrap_or("/").to_string();
+        let url = req.url().to_string();
+        let path = url.split('?').next().unwrap_or("/");
         if path == "/favicon.ico" {
             let _ = req.respond(Response::empty(204));
             continue;
         }
-        let html = match path.as_str() {
+        // A saved report opens as its own (bash-generated) HTML page.
+        if path == "/report" {
+            match reports::query_param(&url, "stamp").and_then(reports::saved_report) {
+                Some(doc) => {
+                    let _ = req.respond(Response::from_string(doc).with_header(ctype()));
+                }
+                None => {
+                    let _ = req.respond(Response::from_string("report not found").with_status_code(404));
+                }
+            }
+            continue;
+        }
+        let html = match path {
             "/" | "/index.html" => {
                 let (body, refresh) = scan_page(&state);
                 shell("scan", "Scan", &body, refresh)
             }
-            "/reports" => shell("reports", "Reports", "<p>Coming soon in the Rust server.</p>", false),
+            "/reports" => shell("reports", "Reports", &reports::reports_html(), false),
             "/settings" => shell("settings", "Settings", "<p>Coming soon in the Rust server.</p>", false),
             _ => {
                 let _ = req.respond(Response::from_string("not found").with_status_code(404));
                 continue;
             }
         };
-        let ctype = Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
-            .expect("valid header");
-        let _ = req.respond(Response::from_string(html).with_header(ctype));
+        let _ = req.respond(Response::from_string(html).with_header(ctype()));
     }
 }
