@@ -101,7 +101,7 @@
 - 残る複雑系は無し（主要12パターン中 flow_type/electron_cache 以外は移植済＝ほぼ parity）。
 - **engine ライブラリ化 ✅（in-process統合の第一歩）**：engine を lib+bin に分割（`lib.rs`＝`pub mod df/scan/util/walk`、`df.rs` にデータ関数＋トレイ用 `startup_free()`、`main.rs` は薄いCLI）。`scan::collect()` も pub 化＝desktop から呼べる。engine ビルド0.3秒・clippy クリーン・CLI回帰OK。**desktop トレイが engine を in-process 呼び出し**（`disksage_engine::df::startup_free()`＝lib.rs の sysinfo 直呼び重複を解消）。desktop 側の検証は Tauri ビルドが要るため**CIで検証**（ローカル2GBビルド回避）
 - **Rust serve 化（本丸②）進行中**：`engine/src/serve.rs`＝純Rust HTTP（`tiny_http` 0.12・TLS無し/system依存なし）。`disksage-engine serve [--port N]`。**増分1 ✅**＝`/` にディスク使用量オーバービュー（`df::containers()` からバー生成＋スナップショット警告）＋左サイドバー（Scan/Reports/Settings、後2つは200スタブ）。実機で curl 検証（bash 不使用で UI 配信＝両コンテナの空き表示・404回避）。ビルド2.47秒・clippy クリーン・serve.rs 115行
-- **serve Rust化の残り増分**：② findings 表示（`scan::collect()` を背景実行＋progressive）→ ③ /reports 履歴 → ④ /settings（config書換）→ ⑤ 削除→ゴミ箱（macは osascript、他OSは trash-cli/gio）→ ⑥ i18n。全部揃ったら **desktop を `disksage-engine serve` 起動に切替**（bash `disksage serve` spawn を廃止）＝**Win/Linux 実現**。今は tray のみ in-process、レポートUIはまだ bash serve（desktop 既定）
+- **serve Rust化の増分**：①オーバービュー ✅／**②findings 表示 ✅**（`Arc<Mutex<ScanState>>`＝背景スレッドで `scan::collect()`、`/` は即オーバービュー＋「Scanning…」＋2秒 meta refresh→完了で severity別カラーカード。実機で 即表示→~31秒後 findings 自動出現＝LOW node_modules・SAFE×2、CLIと一致を検証。serve.rs 224行）。残り→ ③ /reports 履歴 → ④ /settings（config書換）→ ⑤ 削除→ゴミ箱（macは osascript、他OSは trash-cli/gio）→ ⑥ i18n。全部揃ったら **desktop を `disksage-engine serve` 起動に切替**（bash `disksage serve` spawn を廃止）＝**Win/Linux 実現**。今は tray のみ in-process、レポートUIはまだ bash serve（desktop 既定）
 
 ### メニューバー常駐 ✅: Tauri トレイ（SwiftBar 実験→撤去→自前トレイに置換）
 
