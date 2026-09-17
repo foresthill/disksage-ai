@@ -6,6 +6,7 @@
 //! the app work on Windows/Linux.
 
 pub mod df;
+pub mod reports;
 pub mod scan;
 pub mod serve;
 pub mod util;
