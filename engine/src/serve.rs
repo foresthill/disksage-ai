@@ -1,16 +1,68 @@
-//! In-process HTTP server — increment 1 of porting the bash `serve` UI to Rust.
+//! In-process HTTP server — porting the bash `serve` UI to Rust, so the desktop
+//! app can eventually show its UI without spawning the macOS-only bash `serve`.
 //!
-//! Serves the disk-usage overview from the engine's own `df` data, so the
-//! desktop app can eventually show its UI without spawning the macOS-only bash
-//! `serve`. English-only and overview-only for now; findings, reports, settings,
-//! the delete-to-Trash flow and i18n come in later increments.
+//! Increment 1: disk-usage overview.
+//! Increment 2 (this file): findings, scanned in the background so the overview
+//! paints instantly and the findings stream in (progressive, like bash serve).
+//! Still English-only; /reports, /settings, delete-to-Trash and i18n come next.
+
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use tiny_http::{Header, Response, Server};
 
 use crate::df;
+use crate::scan::{self, Finding};
 use crate::util::human;
 
-/// Left navigation, matching the bash serve's sidebar.
+/// Shared scan state: findings are computed off the request path so `/` stays
+/// responsive while the (slow) directory walk runs.
+#[derive(Default)]
+struct ScanState {
+    scanning: bool,
+    findings: Option<Vec<Finding>>,
+}
+type State = Arc<Mutex<ScanState>>;
+
+/// Kick off a scan in the background; `/` shows "scanning…" until it lands.
+fn trigger_scan(state: State) {
+    state.lock().unwrap().scanning = true;
+    thread::spawn(move || {
+        let found = scan::collect();
+        let mut s = state.lock().unwrap();
+        s.findings = Some(found);
+        s.scanning = false;
+    });
+}
+
+/// Minimal HTML escaping for text we drop into the page.
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn sev_rank(s: &str) -> u8 {
+    match s {
+        "high" => 0,
+        "medium" => 1,
+        "low" => 2,
+        "info" => 3,
+        "safe" => 4,
+        _ => 5,
+    }
+}
+fn sev_color(s: &str) -> &'static str {
+    match s {
+        "high" => "#d1242f",
+        "medium" => "#bf8700",
+        "low" => "#0969da",
+        "safe" => "#1a7f37",
+        _ => "#6e7781",
+    }
+}
+
 fn sidebar(active: &str) -> String {
     let item = |href: &str, icon: &str, label: &str, key: &str| {
         let bg = if key == active { "background:#30363d;" } else { "" };
@@ -29,10 +81,14 @@ fn sidebar(active: &str) -> String {
     )
 }
 
-/// Full HTML document: the sidebar plus a body, content shifted right to clear it.
-fn shell(active: &str, title: &str, body: &str) -> String {
+fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
+    let meta = if refresh {
+        "<meta http-equiv='refresh' content='2'>"
+    } else {
+        ""
+    };
     format!(
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>\
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>{meta}\
          <meta name='viewport' content='width=device-width, initial-scale=1'>\
          <title>DiskSage — {title}</title>\
          <style>body{{padding-left:200px}}@media(max-width:640px){{body{{padding-left:0}}}}</style></head>\
@@ -44,8 +100,8 @@ fn shell(active: &str, title: &str, body: &str) -> String {
     )
 }
 
-/// The disk-usage overview (one bar per APFS container) + snapshot count.
-fn overview_body() -> String {
+/// The disk-usage overview (one bar per APFS container) + snapshot warning.
+fn overview_html() -> String {
     let mut parts = String::from("<h2 style='font-size:16px;margin:6px 0 14px'>📊 Current Disk Usage</h2>");
     for (total, members) in df::containers().iter().rev() {
         let free = members.iter().map(|m| m.avail).max().unwrap_or(0);
@@ -59,7 +115,7 @@ fn overview_body() -> String {
              <span style='display:block;height:100%;width:{}%;background:{color}'></span></span>\
              <span style='white-space:nowrap;color:#57606a;font-size:13px'>{} / {} ({}%) · free {}</span>\
              </div></div>",
-            df::label_for(members),
+            esc(df::label_for(members)),
             pct.min(100),
             human(used),
             human(*total),
@@ -67,19 +123,67 @@ fn overview_body() -> String {
             human(free),
         ));
     }
-    match df::snapshot_count() {
-        Some(0) | None => {}
-        Some(n) => parts.push_str(&format!(
-            "<div style='margin-top:16px;padding:12px 14px;background:#fff8c5;border:1px solid #eac54f;\
-             border-radius:8px;font-size:13px'>Local snapshots: {n} — these can hold space \
-             (each keeps recently-deleted files alive).</div>"
-        )),
+    if let Some(n) = df::snapshot_count() {
+        if n > 0 {
+            parts.push_str(&format!(
+                "<div style='margin-top:14px;padding:12px 14px;background:#fff8c5;border:1px solid #eac54f;\
+                 border-radius:8px;font-size:13px'>Local snapshots: {n} — these can hold space \
+                 (each keeps recently-deleted files alive).</div>"
+            ));
+        }
     }
-    parts.push_str(
-        "<p style='color:#57606a;font-size:12px;margin-top:18px'>Findings, reports, settings and \
-         the delete flow are being ported to this Rust server; for now they live in the CLI.</p>",
-    );
     parts
+}
+
+fn findings_html(findings: &[Finding]) -> String {
+    if findings.is_empty() {
+        return "<p style='color:#57606a'>No findings above threshold. 🎉</p>".into();
+    }
+    let mut ordered: Vec<&Finding> = findings.iter().collect();
+    ordered.sort_by(|a, b| {
+        sev_rank(a.severity)
+            .cmp(&sev_rank(b.severity))
+            .then(b.size.cmp(&a.size))
+    });
+    let mut out = String::new();
+    for f in ordered {
+        let c = sev_color(f.severity);
+        out.push_str(&format!(
+            "<div style='border-left:4px solid {c};background:#fff;border:1px solid #d0d7de;\
+             border-radius:8px;padding:12px 14px;margin:10px 0'>\
+             <div><span style='background:{c};color:#fff;font-size:11px;padding:2px 8px;\
+             border-radius:10px'>{}</span></div>\
+             <div style='margin-top:6px'>{}</div>\
+             <div style='color:#57606a;font-size:12px;margin-top:4px'>{}</div>\
+             <div style='font-size:13px;margin-top:4px'>💡 {}</div></div>",
+            esc(&f.severity.to_uppercase()),
+            esc(&f.description),
+            esc(&f.path),
+            esc(&f.action),
+        ));
+    }
+    out
+}
+
+/// The Scan page: overview (instant) + findings (or a scanning banner). Returns
+/// the body and whether the page should auto-refresh (while a scan is running).
+fn scan_page(state: &State) -> (String, bool) {
+    let mut body = overview_html();
+    body.push_str("<h2 style='font-size:16px;margin:22px 0 8px'>🎯 Findings</h2>");
+    let s = state.lock().unwrap();
+    match &s.findings {
+        Some(found) => {
+            body.push_str(&findings_html(found));
+            (body, false)
+        }
+        None => {
+            body.push_str(
+                "<div style='padding:14px 16px;background:#ddf4ff;border:1px solid #b6e3ff;\
+                 border-radius:8px;font-size:14px'>🔍 Scanning… findings will appear here.</div>",
+            );
+            (body, true)
+        }
+    }
 }
 
 /// Serve on 127.0.0.1:port until interrupted. Sequential — fine for a local,
@@ -92,6 +196,8 @@ pub fn run(port: u16) {
             std::process::exit(1);
         }
     };
+    let state: State = Arc::new(Mutex::new(ScanState::default()));
+    trigger_scan(state.clone());
     eprintln!("DiskSage engine serving on http://127.0.0.1:{port}  (Ctrl-C to stop)");
     for req in server.incoming_requests() {
         let path = req.url().split('?').next().unwrap_or("/").to_string();
@@ -100,9 +206,12 @@ pub fn run(port: u16) {
             continue;
         }
         let html = match path.as_str() {
-            "/" | "/index.html" => shell("scan", "Disk Usage", &overview_body()),
-            "/reports" => shell("reports", "Reports", "<p>Coming soon in the Rust server.</p>"),
-            "/settings" => shell("settings", "Settings", "<p>Coming soon in the Rust server.</p>"),
+            "/" | "/index.html" => {
+                let (body, refresh) = scan_page(&state);
+                shell("scan", "Scan", &body, refresh)
+            }
+            "/reports" => shell("reports", "Reports", "<p>Coming soon in the Rust server.</p>", false),
+            "/settings" => shell("settings", "Settings", "<p>Coming soon in the Rust server.</p>", false),
             _ => {
                 let _ = req.respond(Response::from_string("not found").with_status_code(404));
                 continue;
