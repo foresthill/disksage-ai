@@ -7,5 +7,6 @@
 
 pub mod df;
 pub mod scan;
+pub mod serve;
 pub mod util;
 pub mod walk;
