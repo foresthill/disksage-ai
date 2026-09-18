@@ -1,23 +1,22 @@
-// DiskSage desktop shell (approach A): a native window that displays the same
-// local web UI served by `disksage serve`, plus a **menu bar tray** that always
-// shows the startup disk's free space — the "ambient layer" idea, now first-party
-// (no third-party app, no permission prompts). Disk stats are read in-process via
-// `sysinfo`, so nothing is spawned and no directories/apps are touched.
+// DiskSage desktop shell: a native window showing the DiskSage UI, plus a menu
+// bar tray with the startup disk's free space.
+//
+// The UI is served **in-process** by the Rust engine (`disksage_engine::serve`),
+// and the tray reads disk stats in-process too — so the app spawns nothing, needs
+// no bash `disksage` on PATH, and raises no permission dialogs. This is what makes
+// a future Windows/Linux build reachable: there is no macOS-only shell script in
+// the app's path anymore.
 
-use std::path::Path;
-use std::process::{Child, Command};
-use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
-/// Holds the spawned `disksage serve` child so we can terminate it on exit.
-struct ServeProcess(Mutex<Option<Child>>);
-
 const TRAY_ID: &str = "disksage-tray";
 const REFRESH: Duration = Duration::from_secs(30);
+/// Must match the port the window's index.html polls.
+const SERVE_PORT: u16 = 8765;
 
 /// Menu bar title: the startup disk's free space, computed in-process by the
 /// DiskSage engine (no subprocess, no protected-folder access → no permission
@@ -27,38 +26,6 @@ fn free_title() -> String {
         "💾 {}",
         disksage_engine::util::human(disksage_engine::df::startup_free())
     )
-}
-
-/// Locate the `disksage` CLI. GUI-launched apps often have a minimal PATH, so
-/// don't rely on it alone: honour DISKSAGE_BIN, then check common install
-/// locations, then fall back to a bare PATH lookup.
-fn resolve_disksage() -> String {
-    if let Ok(p) = std::env::var("DISKSAGE_BIN") {
-        if !p.is_empty() {
-            return p;
-        }
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    let candidates = [
-        "/usr/local/bin/disksage".to_string(),
-        "/opt/homebrew/bin/disksage".to_string(),
-        format!("{home}/.local/bin/disksage"),
-        format!("{home}/bin/disksage"),
-    ];
-    for c in candidates {
-        if Path::new(&c).exists() {
-            return c;
-        }
-    }
-    "disksage".to_string() // last resort: rely on PATH
-}
-
-fn start_serve() -> std::io::Result<Child> {
-    // DISKSAGE_NO_BROWSER stops the CLI from opening a second, external browser.
-    Command::new(resolve_disksage())
-        .arg("serve")
-        .env("DISKSAGE_NO_BROWSER", "1")
-        .spawn()
 }
 
 /// Build the menu bar tray: free-space title + a small menu (Open / Quit).
@@ -97,32 +64,15 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(ServeProcess(Mutex::new(None)))
         .setup(|app| {
             if let Err(e) = setup_tray(app) {
                 eprintln!("DiskSage: could not create the menu bar tray: {e}");
             }
-            match start_serve() {
-                Ok(child) => {
-                    *app.state::<ServeProcess>().0.lock().unwrap() = Some(child);
-                }
-                Err(e) => {
-                    // The window's loading page will keep waiting; surface why.
-                    eprintln!(
-                        "DiskSage: could not start `disksage serve`: {e}. \
-                         Is the `disksage` CLI on your PATH?"
-                    );
-                }
-            }
+            // Serve the UI in-process; the thread lives for the life of the app.
+            std::thread::spawn(|| disksage_engine::serve::run(SERVE_PORT));
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building the DiskSage application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(mut child) = app.state::<ServeProcess>().0.lock().unwrap().take() {
-                    let _ = child.kill();
-                }
-            }
-        });
+        .run(|_app, _event| {});
 }
