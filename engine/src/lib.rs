@@ -6,9 +6,11 @@
 //! the app work on Windows/Linux.
 
 pub mod df;
+pub mod findings;
 pub mod reports;
 pub mod scan;
 pub mod serve;
 pub mod settings;
+pub mod trash;
 pub mod util;
 pub mod walk;
