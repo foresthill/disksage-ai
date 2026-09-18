@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::lang::{is_ja, t};
 use crate::util::{home_dir, human, json_escape};
 use crate::walk::{dir_size, file_size, has_file_named, node_modules_total, tildify};
 
@@ -88,22 +89,38 @@ fn check_iphone_backup(f: &mut Vec<Finding>, home: &Path) {
             continue; // ignore < 1 GB (empty shells / cache-only installs)
         }
         if has_file_named(&dir, "Manifest.db") {
+            let desc = if is_ja() {
+                format!("{vendor} iPhoneバックアップ: {}", human(size))
+            } else {
+                format!("{vendor} iPhone backup: {}", human(size))
+            };
             f.push(Finding {
                 id: "iphone_backup",
                 path: tildify(&dir),
                 size,
                 severity: "medium",
-                description: format!("{vendor} iPhone backup: {}", human(size)),
-                action: "If you no longer need this device backup, delete it (archive to an external drive first if unsure).".into(),
+                description: desc,
+                action: t(
+                    "If you no longer need this device backup, delete it (archive to an external drive first if unsure).",
+                    "このデバイスのバックアップが不要なら削除（不安なら先に外付けへ退避）。",
+                ).into(),
             });
         } else {
+            let desc = if is_ja() {
+                format!("{vendor} iPhoneバックアップ: {} — Manifest.db 無し・復元できない可能性大", human(size))
+            } else {
+                format!("{vendor} iPhone backup: {} — no Manifest.db, likely NOT restorable", human(size))
+            };
             f.push(Finding {
                 id: "iphone_backup",
                 path: tildify(&dir),
                 size,
                 severity: "high",
-                description: format!("{vendor} iPhone backup: {} — no Manifest.db, likely NOT restorable", human(size)),
-                action: "A backup without Manifest.db can't be restored. Verify in the app; if orphaned, delete it to reclaim space.".into(),
+                description: desc,
+                action: t(
+                    "A backup without Manifest.db can't be restored. Verify in the app; if orphaned, delete it to reclaim space.",
+                    "Manifest.db が無いバックアップは復元不可。アプリで確認し、孤児なら削除して容量を回収。",
+                ).into(),
             });
         }
     }
@@ -124,13 +141,21 @@ fn check_apfs_snapshots(f: &mut Vec<Finding>) {
         .filter(|l| l.contains("com.apple.TimeMachine"))
         .count();
     if n > 3 {
+        let desc = if is_ja() {
+            format!("APFS ローカルスナップショット {n} 個（削除済みファイルを生かし続けます）")
+        } else {
+            format!("APFS local snapshots: {n} present (each keeps recently-deleted files alive)")
+        };
         f.push(Finding {
             id: "apfs_snapshots",
             path: "/".into(),
             size: 0,
             severity: "high",
-            description: format!("APFS local snapshots: {n} present (each keeps recently-deleted files alive)"),
-            action: "List with 'tmutil listlocalsnapshots /'; delete an old one with 'sudo tmutil deletelocalsnapshots <date>'.".into(),
+            description: desc,
+            action: t(
+                "List with 'tmutil listlocalsnapshots /'; delete an old one with 'sudo tmutil deletelocalsnapshots <date>'.",
+                "'tmutil listlocalsnapshots /' で一覧、'sudo tmutil deletelocalsnapshots <日付>' で古いものを削除。",
+            ).into(),
         });
     }
 }
@@ -155,13 +180,21 @@ fn check_vm_swap(f: &mut Vec<Finding>) {
         }
     }
     if total > 5 * GIB {
+        let desc = if is_ja() {
+            format!("macOS スワップ + sleepimage: {}", human(total))
+        } else {
+            format!("macOS swap + sleepimage: {}", human(total))
+        };
         f.push(Finding {
             id: "vm_swap",
             path: "/private/var/vm".into(),
             size: total,
             severity: "medium",
-            description: format!("macOS swap + sleepimage: {}", human(total)),
-            action: "A reboot resets swap (sleepimage returns). If chronic, more RAM is the real fix.".into(),
+            description: desc,
+            action: t(
+                "A reboot resets swap (sleepimage returns). If chronic, more RAM is the real fix.",
+                "再起動でスワップは解消（sleepimage は戻ります）。慢性的ならメモリ増設が本筋。",
+            ).into(),
         });
     }
 }
@@ -178,12 +211,19 @@ pub fn collect() -> Vec<Finding> {
     // --- Cross-platform ---------------------------------------------------
     dir_pattern(
         &mut f, home.join(".ollama/models"), 10 * GIB, "ollama_models", "medium",
-        "Ollama models", "Remove unused models with 'ollama rm <model>' (re-pullable anytime).",
+        t("Ollama models", "Ollama モデル"),
+        t(
+            "Remove unused models with 'ollama rm <model>' (re-pullable anytime).",
+            "未使用モデルを 'ollama rm <model>' で削除（いつでも再取得可）。",
+        ),
     );
     dir_pattern(
         &mut f, home.join(".cache"), 5 * GIB, "user_cache", "safe",
-        "~/.cache dev-tool caches",
-        "Clear per tool (uv cache clean, etc.); ~/.cache is re-downloaded on demand.",
+        t("~/.cache dev-tool caches", "~/.cache 開発ツールのキャッシュ"),
+        t(
+            "Clear per tool (uv cache clean, etc.); ~/.cache is re-downloaded on demand.",
+            "各ツールで削除（uv cache clean 等）。~/.cache は必要時に再取得されます。",
+        ),
     );
     // node_modules is an aggregate walk rather than one directory.
     let dev = home.join("Development");
@@ -191,29 +231,40 @@ pub fn collect() -> Vec<Finding> {
         let size = node_modules_total(&dev);
         finding_if_over(
             &mut f, dev, size, 10 * GIB, "node_modules_aggregate", "low",
-            "node_modules under ~/Development total",
-            "For finished projects: 'rm -rf node_modules' (reinstall anytime with your package manager).",
+            t("node_modules under ~/Development total", "~/Development 配下の node_modules 合計"),
+            t(
+                "For finished projects: 'rm -rf node_modules' (reinstall anytime with your package manager).",
+                "終わったプロジェクトは 'rm -rf node_modules'（パッケージマネージャでいつでも再インストール可）。",
+            ),
         );
     }
 
     // --- macOS paths (absent on other OSes → naturally skipped) -----------
     dir_pattern(
         &mut f, home.join("Library/Caches"), 5 * GIB, "library_caches", "safe",
-        "~/Library/Caches app caches",
-        "Quit the app, then clear its subfolder (or brew cleanup / yarn cache clean).",
+        t("~/Library/Caches app caches", "~/Library/Caches アプリのキャッシュ"),
+        t(
+            "Quit the app, then clear its subfolder (or brew cleanup / yarn cache clean).",
+            "アプリを終了してから該当サブフォルダを削除（または brew cleanup / yarn cache clean）。",
+        ),
     );
     dir_pattern(
         &mut f, home.join("Library/Developer/Xcode/DerivedData"), 5 * GIB, "xcode_derived_data",
-        "safe", "Xcode DerivedData", "Delete it; Xcode rebuilds on the next build.",
+        "safe", t("Xcode DerivedData", "Xcode DerivedData"),
+        t("Delete it; Xcode rebuilds on the next build.", "削除可。次回ビルドで Xcode が再生成します。"),
     );
     dir_pattern(
         &mut f, home.join("Library/Developer/Xcode/iOS DeviceSupport"), 3 * GIB,
-        "ios_devicesupport", "safe", "Xcode iOS DeviceSupport",
-        "Delete old versions; re-downloaded when you next connect that device.",
+        "ios_devicesupport", "safe", t("Xcode iOS DeviceSupport", "Xcode iOS DeviceSupport"),
+        t(
+            "Delete old versions; re-downloaded when you next connect that device.",
+            "古いバージョンを削除。次回そのデバイス接続時に再ダウンロードされます。",
+        ),
     );
     dir_pattern(
         &mut f, home.join("Library/Developer/CoreSimulator/Caches"), GIB, "coresimulator_caches",
-        "safe", "CoreSimulator caches", "Safe to clear; regenerated by the simulator.",
+        "safe", t("CoreSimulator caches", "CoreSimulator のキャッシュ"),
+        t("Safe to clear; regenerated by the simulator.", "削除して安全。シミュレータが再生成します。"),
     );
 
     // Docker.raw — a single VM disk file that never auto-shrinks.
@@ -221,8 +272,12 @@ pub fn collect() -> Vec<Finding> {
     if docker.exists() {
         let size = file_size(&docker);
         finding_if_over(
-            &mut f, docker, size, 10 * GIB, "docker_raw", "medium", "Docker.raw VM disk",
-            "Docker Desktop → Troubleshoot → Clean/Purge, or 'docker system prune -a --volumes'.",
+            &mut f, docker, size, 10 * GIB, "docker_raw", "medium",
+            t("Docker.raw VM disk", "Docker.raw VMディスク"),
+            t(
+                "Docker Desktop → Troubleshoot → Clean/Purge, or 'docker system prune -a --volumes'.",
+                "Docker Desktop → Troubleshoot → Clean/Purge、または 'docker system prune -a --volumes'。",
+            ),
         );
     }
 
