@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::lang::t;
 use crate::util::{esc, home_dir};
 
 /// $DISKSAGE_HOME/config (default ~/.disksage/config).
@@ -79,25 +80,40 @@ pub fn settings_html(saved: bool) -> String {
         )
     };
     let saved_banner = if saved {
-        "<div style='background:#dafbe1;border:1px solid #4ac26b;border-radius:8px;\
-         padding:10px 14px;margin-bottom:14px;font-size:14px'>✅ Saved</div>"
+        t(
+            "<div style='background:#dafbe1;border:1px solid #4ac26b;border-radius:8px;\
+             padding:10px 14px;margin-bottom:14px;font-size:14px'>✅ Saved</div>",
+            "<div style='background:#dafbe1;border:1px solid #4ac26b;border-radius:8px;\
+             padding:10px 14px;margin-bottom:14px;font-size:14px'>✅ 保存しました</div>",
+        )
     } else {
         ""
     };
     format!(
-        "<h2 style='font-size:18px;margin:2px 0 14px'>⚙️ Settings</h2>{saved_banner}\
+        "<h2 style='font-size:18px;margin:2px 0 14px'>{title}</h2>{saved_banner}\
          <form method='post' action='/settings'>\
-         <h3 style='font-size:15px;margin:0 0 6px'>Report language</h3>{}{}{}\
-         <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>\
-         Applies to new scans; restart to switch the whole UI.</div>\
+         <h3 style='font-size:15px;margin:0 0 6px'>{lang_h}</h3>{}{}{}\
+         <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{note}</div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
-         padding:9px 18px;font-size:14px;cursor:pointer'>Save</button></form>\
-         <h3 style='font-size:15px;margin:24px 0 6px'>About</h3>\
-         <div style='color:#57606a;font-size:13px;line-height:1.7'>Data: <code>{}</code><br>\
-         DiskSage never deletes anything automatically.</div>",
-        opt("", "Auto (system)"),
+         padding:9px 18px;font-size:14px;cursor:pointer'>{save}</button></form>\
+         <h3 style='font-size:15px;margin:24px 0 6px'>{about}</h3>\
+         <div style='color:#57606a;font-size:13px;line-height:1.7'>{data_l} <code>{}</code><br>{never}</div>",
+        opt("", t("Auto (system)", "自動（システム）")),
         opt("ja", "日本語"),
         opt("en", "English"),
         esc(&data_dir),
+        title = t("⚙️ Settings", "⚙️ 設定"),
+        lang_h = t("Report language", "レポートの言語"),
+        note = t(
+            "Applies to new scans; restart to switch the whole UI.",
+            "新しいスキャンから反映。UI全体は再起動で切替。"
+        ),
+        save = t("Save", "保存"),
+        about = t("About", "情報"),
+        data_l = t("Data:", "データ:"),
+        never = t(
+            "DiskSage never deletes anything automatically.",
+            "DiskSage は何も自動削除しません。"
+        ),
     )
 }
