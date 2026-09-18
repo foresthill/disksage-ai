@@ -9,5 +9,6 @@ pub mod df;
 pub mod reports;
 pub mod scan;
 pub mod serve;
+pub mod settings;
 pub mod util;
 pub mod walk;

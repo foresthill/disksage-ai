@@ -9,11 +9,12 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use tiny_http::{Header, Response, Server};
+use tiny_http::{Header, Method, Response, Server};
 
 use crate::df;
 use crate::reports;
 use crate::scan::{self, Finding};
+use crate::settings;
 use crate::util::{esc, human};
 
 /// Shared scan state: findings are computed off the request path so `/` stays
@@ -195,11 +196,23 @@ pub fn run(port: u16) {
     let ctype = || {
         Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr")
     };
-    for req in server.incoming_requests() {
+    for mut req in server.incoming_requests() {
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("/");
         if path == "/favicon.ico" {
             let _ = req.respond(Response::empty(204));
+            continue;
+        }
+        // Saving settings: write the language choice to the shared config file.
+        if path == "/settings" && *req.method() == Method::Post {
+            let mut body = String::new();
+            let _ = req.as_reader().read_to_string(&mut body);
+            let val = settings::form_value(&body, "lang").unwrap_or("");
+            if matches!(val, "" | "ja" | "en") {
+                settings::write_lang(val);
+            }
+            let loc = Header::from_bytes(&b"Location"[..], &b"/settings?saved=1"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
         // A saved report opens as its own (bash-generated) HTML page.
@@ -220,7 +233,10 @@ pub fn run(port: u16) {
                 shell("scan", "Scan", &body, refresh)
             }
             "/reports" => shell("reports", "Reports", &reports::reports_html(), false),
-            "/settings" => shell("settings", "Settings", "<p>Coming soon in the Rust server.</p>", false),
+            "/settings" => {
+                let saved = reports::query_param(&url, "saved").is_some();
+                shell("settings", "Settings", &settings::settings_html(saved), false)
+            }
             _ => {
                 let _ = req.respond(Response::from_string("not found").with_status_code(404));
                 continue;
