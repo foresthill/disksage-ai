@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::lang::t;
 use crate::util::{esc, home_dir};
 
 /// Where the CLI saves reports: $DISKSAGE_HOME/scans (default ~/.disksage/scans).
@@ -58,20 +59,31 @@ pub fn query_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
 /// The `/reports` history list (body HTML, sits inside the served shell).
 pub fn reports_html() -> String {
     let stamps = saved_stamps();
-    let mut out = String::from(
-        "<h2 style='font-size:18px;margin:2px 0 4px'>📁 Report history</h2>\
-         <div style='color:#57606a;font-size:13px;margin-bottom:14px'>\
-         Each scan is a point-in-time snapshot.</div>",
+    let mut out = format!(
+        "<h2 style='font-size:18px;margin:2px 0 4px'>{}</h2>\
+         <div style='color:#57606a;font-size:13px;margin-bottom:14px'>{}</div>",
+        t("📁 Report history", "📁 レポート履歴"),
+        t(
+            "Each scan is a point-in-time snapshot.",
+            "各スキャンはその時点の断面です。"
+        ),
     );
     if stamps.is_empty() {
-        out.push_str(
-            "<p style='color:#57606a'>No saved reports yet — run <code>disksage scan --html</code>.</p>",
-        );
+        out.push_str(&format!(
+            "<p style='color:#57606a'>{}</p>",
+            t(
+                "No saved reports yet — run <code>disksage scan --html</code>.",
+                "保存されたレポートはまだありません — <code>disksage scan --html</code> を実行してください。"
+            )
+        ));
         return out;
     }
     for (i, s) in stamps.iter().enumerate() {
         let tag = if i == 0 {
-            " <span style='color:#1a7f37;font-size:12px'>· latest</span>"
+            t(
+                " <span style='color:#1a7f37;font-size:12px'>· latest</span>",
+                " <span style='color:#1a7f37;font-size:12px'>· 最新</span>",
+            )
         } else {
             ""
         };

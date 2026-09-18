@@ -2,6 +2,7 @@
 //! delete-to-Trash form (a checkbox only for the whitelisted, path-is-the-target
 //! patterns).
 
+use crate::lang::t;
 use crate::scan::Finding;
 use crate::trash;
 use crate::util::esc;
@@ -29,7 +30,10 @@ fn sev_color(s: &str) -> &'static str {
 
 pub fn findings_html(findings: &[Finding]) -> String {
     if findings.is_empty() {
-        return "<p style='color:#57606a'>No findings above threshold. 🎉</p>".into();
+        return format!(
+            "<p style='color:#57606a'>{}</p>",
+            t("No findings above threshold. 🎉", "しきい値を超える項目はありません 🎉")
+        );
     }
     let mut ordered: Vec<&Finding> = findings.iter().collect();
     ordered.sort_by(|a, b| {
@@ -66,14 +70,20 @@ pub fn findings_html(findings: &[Finding]) -> String {
         ));
     }
     if any_deletable {
+        let confirm = t(
+            "Move the selected items to the Trash? (recoverable)",
+            "選択した項目をゴミ箱へ移動しますか？（復元可能）",
+        );
+        let button = t("🗑 Move selected to Trash", "🗑 選択項目をゴミ箱へ");
+        let note = t(
+            "Checked items go to the Trash (recoverable) — never deleted outright.",
+            "チェックした項目はゴミ箱へ（復元可）— 完全削除はしません。",
+        );
         format!(
-            "<form method='post' action='/delete' \
-             onsubmit='return confirm(\"Move the selected items to the Trash? (recoverable)\")'>\
+            "<form method='post' action='/delete' onsubmit='return confirm(\"{confirm}\")'>\
              {out}<button type='submit' style='margin-top:8px;background:#cf222e;color:#fff;\
-             border:0;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer'>\
-             🗑 Move selected to Trash</button>\
-             <div style='color:#57606a;font-size:12px;margin-top:6px'>\
-             Checked items go to the Trash (recoverable) — never deleted outright.</div></form>"
+             border:0;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer'>{button}</button>\
+             <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div></form>"
         )
     } else {
         out
