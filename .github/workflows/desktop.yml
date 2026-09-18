@@ -1,0 +1,83 @@
+name: Desktop
+
+# Builds the DiskSage desktop app (Tauri v2) for macOS, Linux and Windows — now
+# possible because the app runs entirely on the Rust engine (no macOS-only bash).
+#   - push a tag `v*`  → builds each OS's installer and publishes them to one
+#     (draft) GitHub Release.
+#   - manual "Run workflow" → builds only, uploads each OS's bundle as an artifact.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # → .dmg / .app (universal)
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - platform: ubuntu-latest # → .deb / .AppImage
+            rust_targets: ""
+            args: ""
+          - platform: windows-latest # → .msi / .exe (NSIS)
+            rust_targets: ""
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write # tauri-action creates/updates the GitHub Release on tags
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Tauri v2's Linux prerequisites (webkit2gtk 4.1, not 4.0).
+      - name: Linux system dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./desktop/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: bun install
+
+      - name: Build (and release on tags)
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./desktop
+          # Only set a tag (→ create a Release) when triggered by a tag push.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: DiskSage ${{ github.ref_name }}
+          releaseBody: DiskSage desktop app.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Upload bundle artifact (manual runs)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: disksage-${{ matrix.platform }}
+          path: desktop/src-tauri/target/**/release/bundle/**/*
+          if-no-files-found: warn

@@ -34,7 +34,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit_i = PredefinedMenuItem::quit(app, Some("Quit DiskSage"))?;
     let menu = Menu::with_items(app, &[&open_i, &quit_i])?;
 
-    TrayIconBuilder::with_id(TRAY_ID)
+    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .title(free_title())
         .tooltip("DiskSage — startup disk free space")
         .menu(&menu)
@@ -46,8 +46,13 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     let _ = w.set_focus();
                 }
             }
-        })
-        .build(app)?;
+        });
+    // An icon is required for the tray to be visible on Windows/Linux (where the
+    // free-space *title* text isn't shown); on macOS the icon sits beside it.
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    builder.build(app)?;
 
     // Refresh the title in the background so free space stays current.
     let handle = app.handle().clone();
