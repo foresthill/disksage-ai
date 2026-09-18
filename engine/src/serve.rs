@@ -15,7 +15,8 @@ use crate::df;
 use crate::reports;
 use crate::scan::{self, Finding};
 use crate::settings;
-use crate::util::{esc, human};
+use crate::trash;
+use crate::util::{esc, human, percent_decode};
 
 /// Shared scan state: findings are computed off the request path so `/` stays
 /// responsive while the (slow) directory walk runs.
@@ -35,26 +36,6 @@ fn trigger_scan(state: State) {
         s.findings = Some(found);
         s.scanning = false;
     });
-}
-
-fn sev_rank(s: &str) -> u8 {
-    match s {
-        "high" => 0,
-        "medium" => 1,
-        "low" => 2,
-        "info" => 3,
-        "safe" => 4,
-        _ => 5,
-    }
-}
-fn sev_color(s: &str) -> &'static str {
-    match s {
-        "high" => "#d1242f",
-        "medium" => "#bf8700",
-        "low" => "#0969da",
-        "safe" => "#1a7f37",
-        _ => "#6e7781",
-    }
 }
 
 fn sidebar(active: &str) -> String {
@@ -129,36 +110,6 @@ fn overview_html() -> String {
     parts
 }
 
-fn findings_html(findings: &[Finding]) -> String {
-    if findings.is_empty() {
-        return "<p style='color:#57606a'>No findings above threshold. 🎉</p>".into();
-    }
-    let mut ordered: Vec<&Finding> = findings.iter().collect();
-    ordered.sort_by(|a, b| {
-        sev_rank(a.severity)
-            .cmp(&sev_rank(b.severity))
-            .then(b.size.cmp(&a.size))
-    });
-    let mut out = String::new();
-    for f in ordered {
-        let c = sev_color(f.severity);
-        out.push_str(&format!(
-            "<div style='border-left:4px solid {c};background:#fff;border:1px solid #d0d7de;\
-             border-radius:8px;padding:12px 14px;margin:10px 0'>\
-             <div><span style='background:{c};color:#fff;font-size:11px;padding:2px 8px;\
-             border-radius:10px'>{}</span></div>\
-             <div style='margin-top:6px'>{}</div>\
-             <div style='color:#57606a;font-size:12px;margin-top:4px'>{}</div>\
-             <div style='font-size:13px;margin-top:4px'>💡 {}</div></div>",
-            esc(&f.severity.to_uppercase()),
-            esc(&f.description),
-            esc(&f.path),
-            esc(&f.action),
-        ));
-    }
-    out
-}
-
 /// The Scan page: overview (instant) + findings (or a scanning banner). Returns
 /// the body and whether the page should auto-refresh (while a scan is running).
 fn scan_page(state: &State) -> (String, bool) {
@@ -167,7 +118,7 @@ fn scan_page(state: &State) -> (String, bool) {
     let s = state.lock().unwrap();
     match &s.findings {
         Some(found) => {
-            body.push_str(&findings_html(found));
+            body.push_str(&crate::findings::findings_html(found));
             (body, false)
         }
         None => {
@@ -201,6 +152,41 @@ pub fn run(port: u16) {
         let path = url.split('?').next().unwrap_or("/");
         if path == "/favicon.ico" {
             let _ = req.respond(Response::empty(204));
+            continue;
+        }
+        // Deleting: move whitelisted, currently-offered paths to the Trash.
+        if path == "/delete" && *req.method() == Method::Post {
+            let mut body = String::new();
+            let _ = req.as_reader().read_to_string(&mut body);
+            let requested: Vec<String> = body
+                .split('&')
+                .filter_map(|kv| {
+                    let (k, v) = kv.split_once('=')?;
+                    (k == "del").then(|| percent_decode(v))
+                })
+                .collect();
+            // Validate every requested path against the paths the server is
+            // *currently* offering as deletable — never trust the client.
+            let allowed: std::collections::HashSet<String> = {
+                let s = state.lock().unwrap();
+                s.findings
+                    .as_ref()
+                    .map(|fs| {
+                        fs.iter()
+                            .filter(|f| trash::is_deletable(f.id))
+                            .map(|f| f.path.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            for p in &requested {
+                if allowed.contains(p) {
+                    let _ = trash::to_trash(&trash::expand_tilde(p));
+                }
+            }
+            trigger_scan(state.clone()); // refresh findings after deletion
+            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
         // Saving settings: write the language choice to the shared config file.

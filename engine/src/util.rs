@@ -30,12 +30,46 @@ pub fn home_dir() -> Option<PathBuf> {
     }
 }
 
-/// Minimal HTML escaping for text dropped into served pages.
+/// Minimal HTML escaping for text dropped into served pages (attributes included,
+/// so single quotes are escaped too).
 pub fn esc(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// Percent-decode an `application/x-www-form-urlencoded` value (`+` → space,
+/// `%XX` → byte). Used to recover paths posted from the delete form.
+pub fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let hex = |c: u8| (c as char).to_digit(16);
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < b.len() => match (hex(b[i + 1]), hex(b[i + 2])) {
+                (Some(h), Some(l)) => {
+                    out.push((h * 16 + l) as u8);
+                    i += 3;
+                }
+                _ => {
+                    out.push(b'%');
+                    i += 1;
+                }
+            },
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Minimal JSON string escaping (the engine emits JSON without a serde dependency
