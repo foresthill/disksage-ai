@@ -74,7 +74,13 @@ pub fn run() {
                 eprintln!("DiskSage: could not create the menu bar tray: {e}");
             }
             // Serve the UI in-process; the thread lives for the life of the app.
-            std::thread::spawn(|| disksage_engine::serve::run(SERVE_PORT));
+            // A bind failure (e.g. the port is already taken by another DiskSage)
+            // is logged, not fatal — the window then talks to whatever's on 8765.
+            std::thread::spawn(|| {
+                if let Err(e) = disksage_engine::serve::run(SERVE_PORT) {
+                    eprintln!("DiskSage: serve could not start: {e}");
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())

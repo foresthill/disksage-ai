@@ -92,7 +92,10 @@ fn main() {
                 .and_then(|i| args.get(i + 1))
                 .and_then(|s| s.parse::<u16>().ok())
                 .unwrap_or(8765);
-            serve::run(port);
+            if let Err(e) = serve::run(port) {
+                eprintln!("serve: {e}");
+                std::process::exit(1);
+            }
         }
         Some("--version") | Some("-v") => {
             println!("disksage-engine {}", env!("CARGO_PKG_VERSION"));

@@ -155,14 +155,11 @@ fn scan_page(state: &State) -> (String, bool) {
 
 /// Serve on 127.0.0.1:port until interrupted. Sequential — fine for a local,
 /// single-user UI.
-pub fn run(port: u16) {
-    let server = match Server::http(("127.0.0.1", port)) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("serve: cannot bind 127.0.0.1:{port}: {e}");
-            std::process::exit(1);
-        }
-    };
+pub fn run(port: u16) -> Result<(), String> {
+    // Return an error on bind failure rather than exiting the process — the
+    // desktop app runs this on a thread and must survive a port clash.
+    let server = Server::http(("127.0.0.1", port))
+        .map_err(|e| format!("cannot bind 127.0.0.1:{port}: {e}"))?;
     lang::init();
     let state: State = Arc::new(Mutex::new(ScanState::default()));
     trigger_scan(state.clone());
@@ -253,4 +250,5 @@ pub fn run(port: u16) {
         };
         let _ = req.respond(Response::from_string(html).with_header(ctype()));
     }
+    Ok(())
 }
