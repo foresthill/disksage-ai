@@ -33,6 +33,10 @@ fn trigger_scan(state: State) {
     state.lock().unwrap().scanning = true;
     thread::spawn(move || {
         let found = scan::collect();
+        // Save a snapshot so /reports has history even with no bash CLI present.
+        if let Err(e) = crate::report::save(&found) {
+            eprintln!("DiskSage: could not save report snapshot: {e}");
+        }
         let mut s = state.lock().unwrap();
         s.findings = Some(found);
         s.scanning = false;

@@ -1,12 +1,20 @@
 # disksage-engine (Rust port — PoC)
 
-Phase B, step 1 of DiskSage: begin porting the macOS-only bash engine to Rust so
-it can run natively on **macOS, Windows and Linux** — and eventually be called
-in-process by the Tauri desktop app instead of shelling out to `disksage serve`.
+The cross-platform DiskSage engine (Rust). It runs natively on **macOS, Windows
+and Linux** and is called **in-process** by the Tauri desktop app — `df`, `scan`
+and the whole `serve` UI (overview, findings, reports, settings, delete) with no
+bash.
 
-This is a **proof of concept**, not a replacement yet. It reproduces one command
-(`df`) so its output can be diffed against the bash implementation and the port
-can grow one command at a time while staying verifiable.
+## Platform notes
+
+- **Delete to Trash**: macOS uses Finder (osascript), Windows the Recycle Bin
+  (PowerShell / VB.FileSystem), and **Linux requires `gio` (GLib) or `trash-cli`
+  installed at runtime** — without one, the delete action reports an error rather
+  than removing anything.
+- **APFS snapshots / macOS swap** patterns are macOS-only; other patterns whose
+  paths don't exist on a platform are simply skipped.
+- `serve` writes a self-contained HTML snapshot per scan to
+  `$DISKSAGE_HOME/scans`, so the Reports history works without the bash CLI.
 
 ## Try it
 
