@@ -67,7 +67,32 @@ pub fn to_trash(path: &Path) -> Result<(), String> {
         }
         Err("no trash tool found (install trash-cli or gio)".into())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        // Move to the Recycle Bin via VB.FileSystem (SendToRecycleBin) — the
+        // Windows equivalent of the Trash, recoverable, no `rm`.
+        let escaped = p.replace('\'', "''");
+        let method = if path.is_dir() {
+            "DeleteDirectory"
+        } else {
+            "DeleteFile"
+        };
+        let ps = format!(
+            "Add-Type -AssemblyName Microsoft.VisualBasic; \
+             [Microsoft.VisualBasic.FileIO.FileSystem]::{method}('{escaped}',\
+             'OnlyErrorDialogs','SendToRecycleBin')"
+        );
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = p;
         Err("trash is not supported on this platform yet".into())
