@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use crate::lang::t;
 use crate::util::{esc, home_dir};
 
-/// Where the CLI saves reports: $DISKSAGE_HOME/scans (default ~/.disksage/scans).
-fn scans_dir() -> PathBuf {
+/// Where reports are saved: $DISKSAGE_HOME/scans (default ~/.disksage/scans).
+pub fn scans_dir() -> PathBuf {
     let home = std::env::var_os("DISKSAGE_HOME")
         .map(PathBuf::from)
         .or_else(|| home_dir().map(|h| h.join(".disksage")))
