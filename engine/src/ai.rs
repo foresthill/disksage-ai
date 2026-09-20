@@ -11,6 +11,96 @@ use serde_json::{json, Value};
 use crate::mask;
 use crate::scan::Finding;
 
+const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
+const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/messages";
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+const MODEL_ANTHROPIC: &str = "claude-opus-4-8";
+const MODEL_OPENROUTER: &str = "anthropic/claude-opus-4.8";
+
+/// How to authenticate: Anthropic direct (x-api-key) or OpenRouter (Bearer).
+pub enum Auth {
+    XApiKey,
+    Bearer,
+}
+
+/// A resolved BYOK provider. Never logged — carries the user's key.
+pub struct Provider {
+    pub url: String,
+    pub key: String,
+    pub auth: Auth,
+    pub version: Option<String>,
+    pub model: String,
+}
+
+/// Pure provider resolution (env read separately, so this is testable).
+/// Precedence: explicit provider > Anthropic key > OpenRouter key.
+fn resolve_from(
+    pref: &str,
+    anthropic: Option<String>,
+    openrouter: Option<String>,
+    base_url: Option<String>,
+    model_override: Option<String>,
+) -> Result<Provider, String> {
+    let want_anthropic = pref == "anthropic" || (pref.is_empty() && anthropic.is_some());
+    if want_anthropic {
+        let key = anthropic.ok_or("ANTHROPIC_API_KEY is not set")?;
+        return Ok(Provider {
+            url: base_url.unwrap_or_else(|| ANTHROPIC_URL.into()),
+            key,
+            auth: Auth::XApiKey,
+            version: Some(ANTHROPIC_VERSION.into()),
+            model: model_override.unwrap_or_else(|| MODEL_ANTHROPIC.into()),
+        });
+    }
+    let want_openrouter = pref == "openrouter" || (pref.is_empty() && openrouter.is_some());
+    if want_openrouter {
+        let key = openrouter.ok_or("OPENROUTER_API_KEY is not set")?;
+        return Ok(Provider {
+            url: base_url.unwrap_or_else(|| OPENROUTER_URL.into()),
+            key,
+            auth: Auth::Bearer,
+            version: None,
+            model: model_override.unwrap_or_else(|| MODEL_OPENROUTER.into()),
+        });
+    }
+    Err("no API key found — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY".into())
+}
+
+/// Resolve the provider from the environment (BYOK).
+pub fn resolve_provider() -> Result<Provider, String> {
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    resolve_from(
+        &env("DISKSAGE_AI_PROVIDER").unwrap_or_default(),
+        env("ANTHROPIC_API_KEY"),
+        env("OPENROUTER_API_KEY"),
+        env("DISKSAGE_AI_BASE_URL"),
+        env("DISKSAGE_MODEL"),
+    )
+}
+
+/// Mask → build → POST (BYOK) → parse. The only place a request leaves the
+/// machine; the body is metadata-only and paths are already masked in build_request.
+pub fn analyze(findings: &[Finding], lang_ja: bool) -> Result<Vec<Judgment>, String> {
+    let p = resolve_provider()?;
+    let body = build_request(findings, &p.model, lang_ja, std::env::consts::OS);
+    let mut req = ureq::post(&p.url).set("content-type", "application/json");
+    match p.auth {
+        Auth::XApiKey => req = req.set("x-api-key", &p.key),
+        Auth::Bearer => req = req.set("authorization", &format!("Bearer {}", p.key)),
+    }
+    if let Some(v) = &p.version {
+        req = req.set("anthropic-version", v);
+    }
+    // Read the body on both success and HTTP-error (API errors are JSON that
+    // parse_response turns into a clear message).
+    let text = match req.send_string(&body) {
+        Ok(r) => r.into_string().map_err(|e| e.to_string())?,
+        Err(ureq::Error::Status(_, r)) => r.into_string().map_err(|e| e.to_string())?,
+        Err(e) => return Err(format!("request failed: {e}")),
+    };
+    parse_response(&text)
+}
+
 /// One per-finding judgment from the model.
 #[derive(Debug, Deserialize)]
 pub struct Judgment {
@@ -179,6 +269,28 @@ mod tests {
         assert_eq!(js[0].index, 0);
         assert_eq!(js[0].recommendation, "safe_to_delete");
         assert_eq!(js[0].confidence, "high");
+    }
+
+    #[test]
+    fn provider_resolution_precedence_and_headers() {
+        let s = |x: &str| Some(x.to_string());
+        // Anthropic wins when both keys present and no explicit pref.
+        let p = resolve_from("", s("ak"), s("ok"), None, None).unwrap();
+        assert!(matches!(p.auth, Auth::XApiKey));
+        assert_eq!(p.url, ANTHROPIC_URL);
+        assert_eq!(p.version.as_deref(), Some(ANTHROPIC_VERSION));
+        assert_eq!(p.model, MODEL_ANTHROPIC);
+        // OpenRouter when only its key is set.
+        let p = resolve_from("", None, s("ok"), None, None).unwrap();
+        assert!(matches!(p.auth, Auth::Bearer));
+        assert_eq!(p.url, OPENROUTER_URL);
+        assert!(p.version.is_none());
+        // Explicit pref overrides key presence; base_url/model overrides honored.
+        let p = resolve_from("openrouter", s("ak"), s("ok"), s("http://x"), s("m")).unwrap();
+        assert_eq!(p.url, "http://x");
+        assert_eq!(p.model, "m");
+        // No keys → error.
+        assert!(resolve_from("", None, None, None, None).is_err());
     }
 
     #[test]

@@ -22,6 +22,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # AI mode (BYOK): build the request body and parse the response. Metadata only.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Blocking HTTPS client for the BYOK AI call (pure-Rust TLS via rustls).
+ureq = "2"
 
 [profile.release]
 strip = true
