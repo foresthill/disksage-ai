@@ -8,7 +8,49 @@
 
 use disksage_engine::df::{self, Volume};
 use disksage_engine::util::human;
-use disksage_engine::{scan, serve};
+use disksage_engine::{ai, lang, mask, scan, serve};
+
+/// `ai [--yes]` — scan, show the masked metadata that WOULD be sent, then (only
+/// with --yes and a BYOK key) send it to Claude and print per-finding judgments.
+fn cmd_ai(yes: bool) {
+    lang::init();
+    let findings = scan::collect();
+    if findings.is_empty() {
+        println!("No findings to analyze.");
+        return;
+    }
+    // Privacy preview: exactly the metadata that would leave the machine.
+    println!("The following METADATA would be sent (file contents are NEVER sent):\n");
+    let mut aliases = mask::Aliases::new();
+    for (i, f) in findings.iter().enumerate() {
+        println!(
+            "  [{i}] {} {} — {}",
+            f.severity,
+            mask::mask_path(&f.path, &mut aliases),
+            f.description
+        );
+    }
+    if !yes {
+        println!("\nRe-run with --yes to send this to the AI for judgment (BYOK).");
+        return;
+    }
+    println!("\nContacting the AI…");
+    match ai::analyze(&findings, lang::is_ja()) {
+        Ok(judgments) => {
+            println!();
+            for j in judgments {
+                println!(
+                    "  [{}] {} ({}) — {}",
+                    j.index, j.recommendation, j.confidence, j.reasoning
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("AI request failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
 
 fn cmd_df_human() {
     println!("## Current Disk Usage\n");
@@ -85,6 +127,7 @@ fn main() {
             }
         }
         Some("scan") => scan::run(json),
+        Some("ai") => cmd_ai(args.iter().any(|a| a == "--yes")),
         Some("serve") => {
             let port = args
                 .iter()
@@ -102,7 +145,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine serve [--port N]\n  disksage-engine --version"
+                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine ai   [--yes]\n  disksage-engine serve [--port N]\n  disksage-engine --version"
             );
             std::process::exit(2);
         }
