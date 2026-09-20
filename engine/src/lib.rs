@@ -5,6 +5,7 @@
 //! the foundation for dropping the macOS-only bash `serve` dependency and making
 //! the app work on Windows/Linux.
 
+pub mod ai;
 pub mod df;
 pub mod findings;
 pub mod lang;
