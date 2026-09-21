@@ -10,6 +10,7 @@ pub mod df;
 pub mod findings;
 pub mod lang;
 pub mod mask;
+pub mod page;
 pub mod report;
 pub mod reports;
 pub mod scan;

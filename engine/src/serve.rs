@@ -11,20 +11,23 @@ use std::thread;
 
 use tiny_http::{Header, Method, Response, Server};
 
-use crate::df;
+use crate::ai::{self, Judgment};
 use crate::lang::{self, is_ja, t};
 use crate::reports;
 use crate::scan::{self, Finding};
 use crate::settings;
 use crate::trash;
-use crate::util::{esc, human, percent_decode};
+use crate::util::{esc, percent_decode};
 
 /// Shared scan state: findings are computed off the request path so `/` stays
-/// responsive while the (slow) directory walk runs.
+/// responsive while the (slow) directory walk runs. AI judgments are opt-in and
+/// also computed off the request path (a network call).
 #[derive(Default)]
 struct ScanState {
     scanning: bool,
     findings: Option<Vec<Finding>>,
+    ai: Option<Result<Vec<Judgment>, String>>,
+    ai_running: bool,
 }
 type State = Arc<Mutex<ScanState>>;
 
@@ -39,6 +42,7 @@ fn trigger_scan(state: State) {
         }
         let mut s = state.lock().unwrap();
         s.findings = Some(found);
+        s.ai = None; // previous judgments were for the old findings/indices
         s.scanning = false;
     });
 }
@@ -81,60 +85,66 @@ fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
     )
 }
 
-/// The disk-usage overview (one bar per APFS container) + snapshot warning.
-fn overview_html() -> String {
-    let heading = t(
-        "<h2 style='font-size:16px;margin:6px 0 14px'>📊 Current Disk Usage</h2>",
-        "<h2 style='font-size:16px;margin:6px 0 14px'>📊 現在のディスク使用量</h2>",
+
+fn ai_configured() -> bool {
+    ai::resolve_provider().is_ok()
+}
+
+fn ai_button(rerun: bool) -> String {
+    let label = if rerun {
+        t("🧠 Re-run AI judgment", "🧠 AI再判定")
+    } else {
+        t("🧠 Ask the AI to judge", "🧠 AIに判定してもらう")
+    };
+    let note = t(
+        "Sends masked metadata only (no file contents) to your configured provider.",
+        "設定済みプロバイダにマスク済みメタデータのみ送信（ファイル内容は送りません）。",
     );
-    let mut parts = String::from(heading);
-    for (total, members) in df::containers().iter().rev() {
-        let free = members.iter().map(|m| m.avail).max().unwrap_or(0);
-        let used = total.saturating_sub(free);
-        let pct = if *total > 0 { used * 100 / total } else { 0 };
-        let color = if pct >= 90 { "#d1242f" } else if pct >= 75 { "#bf8700" } else { "#1a7f37" };
-        let raw = df::label_for(members);
-        let label = if raw == "Startup disk" { t("Startup disk", "起動ディスク") } else { raw };
-        parts.push_str(&format!(
-            "<div style='margin:10px 0'><div style='font-weight:600'>{}</div>\
-             <div style='display:flex;align-items:center;gap:10px'>\
-             <span style='flex:1;height:12px;background:#e6e6e6;border-radius:6px;overflow:hidden'>\
-             <span style='display:block;height:100%;width:{}%;background:{color}'></span></span>\
-             <span style='white-space:nowrap;color:#57606a;font-size:13px'>{} / {} ({}%) · {} {}</span>\
-             </div></div>",
-            esc(label),
-            pct.min(100),
-            human(used),
-            human(*total),
-            pct,
-            t("free", "空き"),
-            human(free),
-        ));
+    format!(
+        "<form method='post' action='/ai' style='margin-top:12px'>\
+         <button type='submit' style='background:#8250df;color:#fff;border:0;border-radius:8px;\
+         padding:9px 18px;font-size:14px;cursor:pointer'>{label}</button>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div></form>"
+    )
+}
+
+/// The AI area under the findings: running banner, error, an opt-in button, or a
+/// note when no BYOK key is configured.
+fn ai_controls(s: &ScanState) -> String {
+    if s.ai_running {
+        return t(
+            "<div style='margin-top:12px;padding:12px 14px;background:#ddf4ff;border:1px solid \
+             #b6e3ff;border-radius:8px;font-size:14px'>🧠 Asking the AI…</div>",
+            "<div style='margin-top:12px;padding:12px 14px;background:#ddf4ff;border:1px solid \
+             #b6e3ff;border-radius:8px;font-size:14px'>🧠 AI が判定中…</div>",
+        )
+        .to_string();
     }
-    if let Some(n) = df::snapshot_count() {
-        if n > 0 {
-            let msg = if is_ja() {
-                format!(
-                    "ローカルスナップショット: {n} 個 — 空きを保持している可能性（削除済みファイルを生かし続けます）。"
-                )
-            } else {
-                format!(
-                    "Local snapshots: {n} — these can hold space (each keeps recently-deleted files alive)."
-                )
-            };
-            parts.push_str(&format!(
-                "<div style='margin-top:14px;padding:12px 14px;background:#fff8c5;border:1px solid #eac54f;\
-                 border-radius:8px;font-size:13px'>{msg}</div>"
-            ));
-        }
+    if let Some(Err(e)) = &s.ai {
+        return format!(
+            "<div style='margin-top:12px;padding:10px 14px;background:#ffebe9;border:1px solid \
+             #ff8182;border-radius:8px;font-size:13px'>⚠️ {} {}</div>{}",
+            t("AI request failed:", "AI判定に失敗:"),
+            esc(e),
+            ai_button(true),
+        );
     }
-    parts
+    if !ai_configured() {
+        return format!(
+            "<div style='margin-top:12px;color:#57606a;font-size:13px'>{}</div>",
+            t(
+                "AI judgment is available when a BYOK key is set (ANTHROPIC_API_KEY or OPENROUTER_API_KEY).",
+                "AI判定は BYOK キー設定時に使えます（ANTHROPIC_API_KEY または OPENROUTER_API_KEY）。",
+            )
+        );
+    }
+    ai_button(s.ai.is_some())
 }
 
 /// The Scan page: overview (instant) + findings (or a scanning banner). Returns
 /// the body and whether the page should auto-refresh (while a scan is running).
 fn scan_page(state: &State) -> (String, bool) {
-    let mut body = overview_html();
+    let mut body = crate::page::overview_html();
     body.push_str(t(
         "<h2 style='font-size:16px;margin:22px 0 8px'>🎯 Findings</h2>",
         "<h2 style='font-size:16px;margin:22px 0 8px'>🎯 検出結果</h2>",
@@ -142,8 +152,10 @@ fn scan_page(state: &State) -> (String, bool) {
     let s = state.lock().unwrap();
     match &s.findings {
         Some(found) => {
-            body.push_str(&crate::findings::findings_html(found));
-            (body, false)
+            let ai_ref = s.ai.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.as_slice());
+            body.push_str(&crate::findings::findings_html(found, ai_ref));
+            body.push_str(&ai_controls(&s));
+            (body, s.ai_running) // auto-refresh while an AI call is in flight
         }
         None => {
             body.push_str(t(
@@ -176,6 +188,35 @@ pub fn run(port: u16) -> Result<(), String> {
         let path = url.split('?').next().unwrap_or("/");
         if path == "/favicon.ico" {
             let _ = req.respond(Response::empty(204));
+            continue;
+        }
+        // AI judgment (opt-in): run analyze() in the background on the current
+        // findings; the page shows "asking…" then the per-finding verdicts.
+        if path == "/ai" && *req.method() == Method::Post {
+            let to_analyze = {
+                let s = state.lock().unwrap();
+                if s.ai_running {
+                    None
+                } else {
+                    s.findings.clone()
+                }
+            };
+            if let Some(found) = to_analyze {
+                {
+                    let mut s = state.lock().unwrap();
+                    s.ai_running = true;
+                    s.ai = None;
+                }
+                let st = state.clone();
+                thread::spawn(move || {
+                    let result = ai::analyze(&found, is_ja());
+                    let mut s = st.lock().unwrap();
+                    s.ai = Some(result);
+                    s.ai_running = false;
+                });
+            }
+            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
         // Deleting: move whitelisted, currently-offered paths to the Trash.

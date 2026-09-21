@@ -17,6 +17,7 @@ use crate::walk::{dir_size, file_size, has_file_named, node_modules_total, tildi
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
+#[derive(Clone)]
 pub struct Finding {
     pub id: &'static str,
     pub path: String,
