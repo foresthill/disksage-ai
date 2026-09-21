@@ -23,3 +23,27 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run ShellCheck (severity=warning)
         run: shellcheck --severity=warning disksage
+
+  # The Rust engine (engine/) is otherwise only compiled by the tag/dispatch
+  # Desktop workflow, so a PR could break its build, clippy or tests unnoticed.
+  # This gates every PR on Linux. (A `cargo fmt --check` gate is intentionally
+  # left out until a one-time formatting pass lands; the engine is not yet
+  # rustfmt-clean.)
+  engine:
+    name: Rust engine (clippy + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test (release)
+        run: cargo test --release

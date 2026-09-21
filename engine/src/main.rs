@@ -73,7 +73,7 @@ fn cmd_df_human() {
         if members.len() > 1 {
             println!("\n_Volumes below share this container's free space:_");
             let mut sorted: Vec<&Volume> = members.iter().collect();
-            sorted.sort_by(|a, b| b.used.cmp(&a.used));
+            sorted.sort_by_key(|a| std::cmp::Reverse(a.used));
             for m in sorted {
                 println!("- {} — {}", m.mount, human(m.used));
             }
