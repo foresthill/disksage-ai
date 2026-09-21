@@ -6,6 +6,7 @@
 //! the app work on Windows/Linux.
 
 pub mod ai;
+pub mod audit;
 pub mod df;
 pub mod findings;
 pub mod lang;
