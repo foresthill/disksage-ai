@@ -8,11 +8,13 @@
 
 use disksage_engine::df::{self, Volume};
 use disksage_engine::util::human;
-use disksage_engine::{ai, lang, mask, scan, serve};
+use disksage_engine::{ai, audit, lang, mask, scan, serve};
 
-/// `ai [--yes]` — scan, show the masked metadata that WOULD be sent, then (only
-/// with --yes and a BYOK key) send it to Claude and print per-finding judgments.
-fn cmd_ai(yes: bool) {
+/// `ai [--yes] [--ai-log]` — scan, show the masked metadata that WOULD be sent,
+/// then (only with --yes and a BYOK key) send it to Claude and print per-finding
+/// judgments. `--ai-log` (or DISKSAGE_AI_LOG=1) records the exact request,
+/// response and masking table under `$DISKSAGE_HOME/ai-logs/<stamp>/`.
+fn cmd_ai(yes: bool, ai_log: bool) {
     lang::init();
     let findings = scan::collect();
     if findings.is_empty() {
@@ -35,7 +37,7 @@ fn cmd_ai(yes: bool) {
         return;
     }
     println!("\nContacting the AI…");
-    match ai::analyze(&findings, lang::is_ja()) {
+    match ai::analyze_with_audit(&findings, lang::is_ja(), audit::enabled(ai_log)) {
         Ok(judgments) => {
             println!();
             for j in judgments {
@@ -127,7 +129,10 @@ fn main() {
             }
         }
         Some("scan") => scan::run(json),
-        Some("ai") => cmd_ai(args.iter().any(|a| a == "--yes")),
+        Some("ai") => cmd_ai(
+            args.iter().any(|a| a == "--yes"),
+            args.iter().any(|a| a == "--ai-log"),
+        ),
         Some("serve") => {
             let port = args
                 .iter()
@@ -145,7 +150,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine ai   [--yes]\n  disksage-engine serve [--port N]\n  disksage-engine --version"
+                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine ai   [--yes] [--ai-log]\n  disksage-engine serve [--port N]\n  disksage-engine --version\n\nDISKSAGE_AI_LOG=1 also enables the AI audit log ($DISKSAGE_HOME/ai-logs/)."
             );
             std::process::exit(2);
         }

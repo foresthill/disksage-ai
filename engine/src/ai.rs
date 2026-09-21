@@ -8,6 +8,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::audit;
 use crate::mask;
 use crate::scan::Finding;
 
@@ -80,9 +81,42 @@ pub fn resolve_provider() -> Result<Provider, String> {
 
 /// Mask → build → POST (BYOK) → parse. The only place a request leaves the
 /// machine; the body is metadata-only and paths are already masked in build_request.
+/// Audit logging is enabled by `--ai-log` / `DISKSAGE_AI_LOG=1`.
 pub fn analyze(findings: &[Finding], lang_ja: bool) -> Result<Vec<Judgment>, String> {
+    analyze_with_audit(findings, lang_ja, audit::enabled(false))
+}
+
+/// As `analyze`, but with the audit-log decision passed in explicitly (so the
+/// CLI `--ai-log` flag works even without the env var). When on, the exact
+/// request body, the raw response and the real→masked path table are written to
+/// `$DISKSAGE_HOME/ai-logs/<stamp>/` before/after the send.
+pub fn analyze_with_audit(
+    findings: &[Finding],
+    lang_ja: bool,
+    audit_log: bool,
+) -> Result<Vec<Judgment>, String> {
     let p = resolve_provider()?;
     let body = build_request(findings, &p.model, lang_ja, std::env::consts::OS);
+
+    // Record the request + masking table before the send, so an audit exists even
+    // if the network call fails. Logging failures must never block the analysis.
+    let log = if audit_log {
+        match audit::start() {
+            Ok(a) => {
+                eprintln!("DiskSage: AI audit log → {}", a.dir().display());
+                let _ = a.write_request(&body);
+                let _ = a.write_masking(findings);
+                Some(a)
+            }
+            Err(e) => {
+                eprintln!("DiskSage: could not start AI audit log: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let mut req = ureq::post(&p.url).set("content-type", "application/json");
     match p.auth {
         Auth::XApiKey => req = req.set("x-api-key", &p.key),
@@ -98,6 +132,9 @@ pub fn analyze(findings: &[Finding], lang_ja: bool) -> Result<Vec<Judgment>, Str
         Err(ureq::Error::Status(_, r)) => r.into_string().map_err(|e| e.to_string())?,
         Err(e) => return Err(format!("request failed: {e}")),
     };
+    if let Some(a) = &log {
+        let _ = a.write_response(&text);
+    }
     parse_response(&text)
 }
 
