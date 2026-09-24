@@ -240,6 +240,34 @@ pub fn collect() -> Vec<Finding> {
         );
     }
 
+    // npm's global download cache — a pure download cache (projects' node_modules
+    // are untouched). The 15 GB blind spot earlier scans missed.
+    dir_pattern(
+        &mut f, home.join(".npm/_cacache"), 5 * GIB, "npm_cache", "safe",
+        t("npm download cache (~/.npm/_cacache)", "npm ダウンロードキャッシュ (~/.npm/_cacache)"),
+        t(
+            "Clear with 'npm cache clean --force'; it only re-downloads on the next install.",
+            "'npm cache clean --force' で削除（次回インストール時に再DLされるだけ）。",
+        ),
+    );
+    // pnpm's content-addressable store (shared across projects): prune unreferenced.
+    let pnpm = {
+        let mac = home.join("Library/pnpm/store");
+        if mac.is_dir() {
+            mac
+        } else {
+            home.join(".local/share/pnpm/store")
+        }
+    };
+    dir_pattern(
+        &mut f, pnpm, 5 * GIB, "pnpm_store", "safe",
+        t("pnpm content-addressable store", "pnpm コンテンツアドレスストア"),
+        t(
+            "Remove only unreferenced packages with 'pnpm store prune'; don't delete the whole (shared) store.",
+            "'pnpm store prune' で未参照パッケージのみ削除（共有ストア全体は削除しない）。",
+        ),
+    );
+
     // --- macOS paths (absent on other OSes → naturally skipped) -----------
     dir_pattern(
         &mut f, home.join("Library/Caches"), 5 * GIB, "library_caches", "safe",

@@ -54,6 +54,7 @@
 - pattern check 並列化 ✅：`cmd_scan` の check_* を**バックグラウンド並列実行**（各 `$cdir/<name>` に出力→`wait`→cat）。library_caches(33GBの du)等が重く逐次だと --quick でも ~46秒かかっていたのを **~22秒**に短縮。wall-time≈最遅チェック。desktop の初回ロード遅延を解消するため導入
   - `help` / `version`
 - 検出パターン追記 ✅：`library_caches`（~/Library/Caches 集計 >5GB・safe）/ `user_cache`（~/.cache 集計 >5GB・safe）。実利用診断で判明した「最大の犯人＝キャッシュ33G/18G」を今まで見逃していたのを塞いだ（`electron_cache` はアプリ個別のみで集計を拾えていなかった）。action は tool純正clean（brew cleanup / yarn cache clean / uv cache clean）と `disksage top` へ誘導。削除UI(DELETABLE)には**未追加**（コンテナ丸ごと削除は大ハンマー・稼働アプリ影響のため report のみ）
+- 検出パターン追記 ✅（npm/pnpm キャッシュ）：`npm_cache`（`~/.npm/_cacache` >5GB・safe・action `npm cache clean --force`）/ `pnpm_store`（mac `~/Library/pnpm/store`・linux `~/.local/share/pnpm/store` >5GB・safe・action `pnpm store prune`）。**動機**：実利用の棚卸しで `~/.npm/_cacache` が **15GB**（起動ディスク最大の回収先）だったのに従来スキャンが見逃していた＝`user_cache` は `~/.cache` しか見ず `~/.npm` を拾えていなかった穴を塞いだ。bash（`check_npm_cache`/`check_pnpm_store`＋i18n catalog desc/act_npmcache/pnpmstore）と Rust engine（`scan.rs` の `dir_pattern`・pnpm は mac/linux パス fallback）の**両方に parity 追加**。npm はダウンロードキャッシュ＝プロジェクトの node_modules に無影響と明記、pnpm は共有ストアのため prune（全削除しない）と明記。削除UI(DELETABLE)には**未追加**（clean/prune はツール純正コマンドが適切・コンテナ丸ごとゴミ箱移動は不適）。**検証**：bash は throwaway copy で pnpm 閾値を1GBに下げ実データ1.9GB を JA/EN 両方で検出→レポート描画を実測。Rust は build/clippy/test(9件) green＝同一 `dir_pattern` 実績プリミティブ（live 検出は npm 削除済・pnpm<5GB のため未発火＝正しい挙動）。**残（任意）**：yarn berry global cache、Windows の npm(`%LocalAppData%/npm-cache`)/pnpm(`%LOCALAPPDATA%/pnpm`) パス
 - serve UX刷新 ✅（progressive + 左サイドバー + レポート履歴画面）：serve は**ポート即bind＋スキャンをバックグラウンド**（`trigger_scan`/`scan_state`）。レポート未完成の間は `overview_page()`＝ディスク使用量バー（`disk_usage_html`）＋「スキャン中」＋2秒自動リフレッシュ→完了で findings に自動切替（`scan_state.active` 中は report にも meta refresh 注入）。全ページに**左サイドバー**（`sidebar()`：🔍スキャン=`/` / 📁レポート=`/reports` / **⚙️設定=`/settings`**、`SHIFT_STYLE` で本文200px右寄せ）。`/reports`=`reports_page()` 履歴一覧画面（クリックで `/?report=<stamp>`）。/rescan・/delete も `trigger_scan()` で非ブロッキング化。ESET的ダッシュボード志向の第一歩。ユーザーUX指摘「初回22秒待ちで離脱／履歴を画面で見たい」への対応
 - **設定画面 ✅（`/settings`）**：`settings_page()`＝レポート言語の選択（自動/日本語/English、ラジオ）＋データ保存先表示＋「自動削除しない」明示。保存は POST `/settings`→`set_config_lang()` が `$DISKSAGE_HOME/config` の `lang=` を書換（値は en/ja/空 にホワイトリスト）→`?saved=1` で✅バナー。今日の `disksage config lang` と同じ config を GUI から操作＝CLI/GUI 一貫。**ユーザー指摘「以前サイドメニューにレポートと設定がある構成を伝えたのに、レポートしか出ていない」への対応**（サイドバーは既にあったが設定画面が未実装だった）。制約: 実行中 serve の UI 言語（SERVE_LANG）は起動時固定＝言語切替は新スキャン/再起動で全反映（画面に明記）
 - serve レポート履歴 ✅：serve のツールバーに履歴 `<select>`（新しい順・「最新」タグ）。選ぶと `GET /?report=<stamp>` で過去レポート表示（stamp はサーバ側 `all_reports()` のホワイトリスト照合＝traversal防止）。過去レポートは読み取り専用（黄色バナー＋最新へ戻るリンク、削除パネル無し）。最新のみ削除パネル表示。`page(report_param)` / `toolbar()` / `old_banner()` / `friendly()`
@@ -80,6 +81,8 @@
 | `coresimulator_caches` | CoreSimulator/Caches > 1GB | safe |
 | `coresimulator_devices` | CoreSimulator/Devices > 5GB（削除でシミュレータ状態消失） | medium |
 | `ios_devicesupport` | Xcode iOS DeviceSupport > 3GB（接続時に再DL） | safe |
+| `npm_cache` | `~/.npm/_cacache` ダウンロードキャッシュ > 5GB（`npm cache clean --force`） | safe |
+| `pnpm_store` | pnpm store（mac `~/Library/pnpm/store` / linux `~/.local/share/pnpm/store`）> 5GB（`pnpm store prune`） | safe |
 | `flow_type` | 30日以内に作成の 500MB 超ファイル（レポート欄） | info |
 
 ---

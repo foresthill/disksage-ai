@@ -243,6 +243,8 @@ Known patterns bundled in the initial release:
 | Xcode iOS DeviceSupport | Debug symbols, re-downloaded on device connect | 🟢 Safe |
 | ~/Library/Caches (aggregate) | App caches that auto-refill (>5GB total) | 🟢 Safe |
 | ~/.cache (aggregate) | Developer/tool caches — uv, huggingface, … (>5GB total) | 🟢 Safe |
+| npm cache | `~/.npm/_cacache` download cache (`npm cache clean --force`; >5GB) | 🟢 Safe |
+| pnpm store | Content-addressable store, shared across projects (`pnpm store prune`; >5GB) | 🟢 Safe |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
 Patterns are declarative JSON — community contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
