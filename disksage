@@ -189,6 +189,10 @@ desc_libcaches=App caches under ~/Library/Caches: %s (auto-refills; regenerated 
 act_libcaches=Clear the biggest ones: quit the app, then delete its folder under ~/Library/Caches. Tool caches: '"'"'brew cleanup'"'"', '"'"'yarn cache clean'"'"'. See '"'"'disksage top'"'"' for the biggest folders.
 desc_usercache=Developer caches under ~/.cache: %s (re-downloadable)
 act_usercache=Clear with tool commands, e.g. '"'"'uv cache clean'"'"'; huggingface / puppeteer under ~/.cache re-download on demand.
+desc_npmcache=npm download cache (~/.npm/_cacache): %s (re-downloaded on next install)
+act_npmcache=Clear with '"'"'npm cache clean --force'"'"'. This is only a download cache — your projects'"'"' node_modules are untouched.
+desc_pnpmstore=pnpm content-addressable store: %s (shared across projects)
+act_pnpmstore=Remove only unreferenced packages with '"'"'pnpm store prune'"'"'; do not delete the whole store (it is shared across projects).
 '
 
 readonly CATALOG_JA='
@@ -251,6 +255,10 @@ desc_libcaches=~/Library/Caches のアプリキャッシュ: %s（自動で再�
 act_libcaches=大きいものから: アプリを終了し ~/Library/Caches 内の該当フォルダを削除。ツール系は '"'"'brew cleanup'"'"' / '"'"'yarn cache clean'"'"'。最大フォルダは '"'"'disksage top'"'"' で確認。
 desc_usercache=~/.cache の開発ツールキャッシュ: %s（再DL可能）
 act_usercache='"'"'uv cache clean'"'"' などツールのコマンドで削除。~/.cache の huggingface / puppeteer は必要時に再DLされます。
+desc_npmcache=npm ダウンロードキャッシュ (~/.npm/_cacache): %s（次回インストール時に再DL）
+act_npmcache='"'"'npm cache clean --force'"'"' で削除。これはダウンロードキャッシュのみで、各プロジェクトの node_modules には影響しません。
+desc_pnpmstore=pnpm コンテンツアドレスストア: %s（プロジェクト間で共有）
+act_pnpmstore='"'"'pnpm store prune'"'"' で未参照パッケージのみ削除。ストア全体は共有のため削除しないでください。
 '
 
 # Look up a raw format string for (lang, key). Prints it (no newline); returns
@@ -517,7 +525,38 @@ check_user_cache() {
   fi
 }
 
-# 14. Flow-type: files > 500 MB modified in the last 30 days.
+# 14. npm download cache — ~/.npm/_cacache. A pure download cache (this was the
+#     15 GB culprit that earlier scans missed): projects' node_modules are untouched.
+check_npm_cache() {
+  local f="$1"
+  local dir="$HOME/.npm/_cacache"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "npm_cache" "$dir" "$size" "safe" \
+      "$(t desc_npmcache "$(human_size "$size")")" \
+      "$(t act_npmcache)"
+  fi
+}
+
+# 15. pnpm store — content-addressable, shared across projects. Prune only the
+#     unreferenced packages; never delete the whole (shared) store.
+check_pnpm_store() {
+  local f="$1"
+  local dir="$HOME/Library/pnpm/store"
+  [[ -d "$dir" ]] || dir="$HOME/.local/share/pnpm/store"
+  [[ -d "$dir" ]] || return 0
+  local size
+  size=$(dir_size_bytes "$dir")
+  if (( size > 5 * 1024 * 1024 * 1024 )); then
+    add_finding "$f" "pnpm_store" "$dir" "$size" "safe" \
+      "$(t desc_pnpmstore "$(human_size "$size")")" \
+      "$(t act_pnpmstore)"
+  fi
+}
+
+# 16. Flow-type: files > 500 MB modified in the last 30 days.
 #    Returns top 20 rows, "size_bytes<TAB>path".
 find_flow_type_files() {
   # Prune the high-file-count, low-signal trees (node_modules, .git, all Caches
@@ -1768,6 +1807,8 @@ EOF
   check_ios_devicesupport       "$cdir/devsupport"    &
   check_library_caches          "$cdir/libcaches"     &
   check_user_cache              "$cdir/usercache"     &
+  check_npm_cache               "$cdir/npmcache"      &
+  check_pnpm_store              "$cdir/pnpmstore"     &
   wait
   cat "$cdir"/* >> "$findings_file" 2>/dev/null
   rm -rf "$cdir"
