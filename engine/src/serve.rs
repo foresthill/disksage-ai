@@ -267,11 +267,22 @@ pub fn run(port: u16) -> Result<(), String> {
             let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
-        // A saved report opens as its own (bash-generated) HTML page.
+        // A saved report opens inside the shell (keeps the sidebar + a back link),
+        // not as a bare standalone page you can't navigate away from.
         if path == "/report" {
-            match reports::query_param(&url, "stamp").and_then(reports::saved_report) {
-                Some(doc) => {
-                    let _ = req.respond(Response::from_string(doc).with_header(ctype()));
+            match reports::query_param(&url, "stamp").and_then(reports::saved_report_body) {
+                Some(inner) => {
+                    let banner = t(
+                        "<div style='background:#fff8c5;border:1px solid #eac54f;border-radius:8px;\
+                         padding:10px 14px;margin-bottom:14px;font-size:14px'>📁 Saved report (read-only) · \
+                         <a href='/'>← Back to Scan</a></div>",
+                        "<div style='background:#fff8c5;border:1px solid #eac54f;border-radius:8px;\
+                         padding:10px 14px;margin-bottom:14px;font-size:14px'>📁 保存済みレポート（読み取り専用） · \
+                         <a href='/'>← スキャンに戻る</a></div>",
+                    );
+                    let body = format!("{banner}{inner}");
+                    let html = shell("reports", t("Reports", "レポート"), &body, false);
+                    let _ = req.respond(Response::from_string(html).with_header(ctype()));
                 }
                 None => {
                     let _ = req.respond(Response::from_string("report not found").with_status_code(404));
