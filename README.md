@@ -20,7 +20,7 @@ Your disk is full again. Which files are safe to delete? DiskSage tells you — 
 | AI judgment | Rule-based | — | — | **Claude API (optional)** |
 | Price | ¥5,900/yr | ¥1,500 | Free | **Free (OSS) + Pro** |
 | Open Source | ❌ | ❌ | ✅ | **✅ Apache-2.0** |
-| Cross-platform | macOS only | macOS only | macOS/Linux | **macOS + Linux (Win coming)** |
+| Cross-platform | macOS only | macOS only | macOS/Linux | **macOS + Windows + Linux** |
 
 **Core philosophy:**
 
@@ -31,12 +31,30 @@ Your disk is full again. Which files are safe to delete? DiskSage tells you — 
 
 ---
 
-## Quick Start
+## Download (desktop app)
+
+A menu-bar / tray-resident app with a native window — shows free space at a glance and lets you review findings and move things to the Trash.
+
+**Latest: [v0.1.2](https://github.com/foresthill/disksage-ai/releases/tag/v0.1.2)** — *pre-release (unsigned).* On first launch: **macOS** right-click → **Open**; **Windows** SmartScreen → **More info** → **Run anyway**.
+
+| OS | Download |
+|---|---|
+| **macOS** | [DiskSage_0.1.2_universal.dmg](https://github.com/foresthill/disksage-ai/releases/download/v0.1.2/DiskSage_0.1.2_universal.dmg) |
+| **Windows** | [DiskSage_0.1.2_x64-setup.exe](https://github.com/foresthill/disksage-ai/releases/download/v0.1.2/DiskSage_0.1.2_x64-setup.exe) (installer) · [.msi](https://github.com/foresthill/disksage-ai/releases/download/v0.1.2/DiskSage_0.1.2_x64_en-US.msi) |
+| **Linux** | [.AppImage](https://github.com/foresthill/disksage-ai/releases/download/v0.1.2/DiskSage_0.1.2_amd64.AppImage) · [.deb](https://github.com/foresthill/disksage-ai/releases/download/v0.1.2/DiskSage_0.1.2_amd64.deb) · [.rpm](https://github.com/foresthill/disksage-ai/releases/download/v0.1.2/DiskSage-0.1.2-1.x86_64.rpm) |
+
+> 📌 **Always-current downloads:** the **[Releases page](https://github.com/foresthill/disksage-ai/releases)** lists every version, newest first. (GitHub's [`/releases/latest`](https://github.com/foresthill/disksage-ai/releases/latest) shortcut only tracks *stable* releases and currently redirects to the list, because these are pre-releases — it'll point to the newest build once a non-pre-release is published.)
+>
+> The app follows your OS language automatically (macOS / Windows / Linux), and you can override it in **Settings**.
+
+---
+
+## Quick Start (CLI)
 
 ```bash
 # Clone
-git clone https://github.com/<your-org>/disksage.git
-cd disksage
+git clone https://github.com/foresthill/disksage-ai.git
+cd disksage-ai
 
 # Install (just copy to PATH)
 sudo cp disksage /usr/local/bin/
