@@ -21,6 +21,7 @@ use crate::walk::{dir_size, tildify};
 pub enum Kind {
     NodeModules,
     LibraryCaches,
+    UserCache,
 }
 
 impl Kind {
@@ -28,6 +29,7 @@ impl Kind {
         match s {
             "node_modules" => Some(Kind::NodeModules),
             "library_caches" => Some(Kind::LibraryCaches),
+            "user_cache" => Some(Kind::UserCache),
             _ => None,
         }
     }
@@ -35,6 +37,7 @@ impl Kind {
         match self {
             Kind::NodeModules => "node_modules",
             Kind::LibraryCaches => "library_caches",
+            Kind::UserCache => "user_cache",
         }
     }
     /// The finding id this kind drills into (for the "expand" link in findings).
@@ -42,6 +45,7 @@ impl Kind {
         match id {
             "node_modules_aggregate" => Some(Kind::NodeModules),
             "library_caches" => Some(Kind::LibraryCaches),
+            "user_cache" => Some(Kind::UserCache),
             _ => None,
         }
     }
@@ -57,6 +61,32 @@ fn development_dir() -> Option<PathBuf> {
 }
 fn caches_dir() -> Option<PathBuf> {
     home_dir().map(|h| h.join("Library/Caches"))
+}
+fn user_cache_dir() -> Option<PathBuf> {
+    home_dir().map(|h| h.join(".cache"))
+}
+/// The container dir for a cache-style kind (its direct subdirs are the items).
+fn container_for(kind: Kind) -> Option<PathBuf> {
+    match kind {
+        Kind::LibraryCaches => caches_dir(),
+        Kind::UserCache => user_cache_dir(),
+        Kind::NodeModules => None,
+    }
+}
+
+/// Direct sub-directories of `dir` as items (used by the cache-style kinds).
+fn list_subdirs(dir: &Path, out: &mut Vec<Item>) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.is_dir() {
+                out.push(Item {
+                    size: dir_size(&path),
+                    path,
+                });
+            }
+        }
+    }
 }
 
 fn collect_node_modules(dir: &Path, out: &mut Vec<Item>) {
@@ -95,19 +125,9 @@ pub fn items(kind: Kind) -> Vec<Item> {
                 collect_node_modules(&dev, &mut out);
             }
         }
-        Kind::LibraryCaches => {
-            if let Some(caches) = caches_dir() {
-                if let Ok(rd) = std::fs::read_dir(&caches) {
-                    for e in rd.flatten() {
-                        let path = e.path();
-                        if path.is_dir() {
-                            out.push(Item {
-                                size: dir_size(&path),
-                                path,
-                            });
-                        }
-                    }
-                }
+        Kind::LibraryCaches | Kind::UserCache => {
+            if let Some(dir) = container_for(kind) {
+                list_subdirs(&dir, &mut out);
             }
         }
     }
@@ -131,7 +151,7 @@ pub fn is_deletable(kind: Kind, path: &Path) -> bool {
                     .map(|d| path.starts_with(d))
                     .unwrap_or(false)
         }
-        Kind::LibraryCaches => caches_dir()
+        Kind::LibraryCaches | Kind::UserCache => container_for(kind)
             .map(|c| path.parent() == Some(c.as_path()))
             .unwrap_or(false),
     }
@@ -173,6 +193,10 @@ fn intro(kind: Kind) -> &'static str {
             "Each app's cache folder. Quit the app first; caches are regenerated on demand.",
             "アプリごとのキャッシュ。該当アプリを終了してから。キャッシュは必要時に再生成されます。",
         ),
+        Kind::UserCache => t(
+            "Each dev-tool's cache under ~/.cache (uv, huggingface, …). Re-downloaded on demand.",
+            "~/.cache 配下の開発ツールのキャッシュ（uv, huggingface 等）。必要時に再取得されます。",
+        ),
     }
 }
 
@@ -187,6 +211,10 @@ pub fn page(kind: Kind) -> String {
         Kind::LibraryCaches => t(
             "<h2 style='font-size:18px;margin:2px 0 4px'>🗂 ~/Library/Caches — pick what to delete</h2>",
             "<h2 style='font-size:18px;margin:2px 0 4px'>🗂 ~/Library/Caches — 削除するものを選ぶ</h2>",
+        ),
+        Kind::UserCache => t(
+            "<h2 style='font-size:18px;margin:2px 0 4px'>🗂 ~/.cache — pick what to delete</h2>",
+            "<h2 style='font-size:18px;margin:2px 0 4px'>🗂 ~/.cache — 削除するものを選ぶ</h2>",
         ),
     };
     let back = t("← Back to Scan", "← スキャンに戻る");
