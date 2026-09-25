@@ -1,9 +1,9 @@
 name: Desktop
 
-# Builds the DiskSage desktop app (Tauri v2) for macOS, Linux and Windows — now
-# possible because the app runs entirely on the Rust engine (no macOS-only bash).
-#   - push a tag `v*`  → builds each OS's installer and publishes them to one
-#     (draft) GitHub Release.
+# Builds the DiskSage desktop app (Tauri v2) for macOS, Linux and Windows.
+#   - push a tag `v*`  → create ONE draft Release, then each OS uploads its
+#     installer to it. (create-release runs first so the three OS build jobs
+#     don't race to create the Release — that race split v0.1.4 across two.)
 #   - manual "Run workflow" → builds only, uploads each OS's bundle as an artifact.
 
 on:
@@ -12,8 +12,41 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Create the (single) draft Release up front on a tag, so the matrix build jobs
+  # upload to one known release id instead of each trying to create their own.
+  create-release:
+    name: Create release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+    steps:
+      - name: Create draft release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `DiskSage ${tag}`,
+              body: 'DiskSage desktop app.',
+              draft: true,
+              prerelease: false,
+            });
+            return data.id;
+
   build:
     name: Build (${{ matrix.platform }})
+    needs: create-release
+    # Run after create-release on tags, and also on manual dispatch (where
+    # create-release is skipped — a skipped dependency would otherwise skip this).
+    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,7 +62,7 @@ jobs:
             args: ""
     runs-on: ${{ matrix.platform }}
     permissions:
-      contents: write # tauri-action creates/updates the GitHub Release on tags
+      contents: write # tauri-action uploads assets to the Release on tags
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -60,18 +93,14 @@ jobs:
         working-directory: desktop
         run: bun install
 
-      - name: Build (and release on tags)
+      - name: Build (upload to the release on tags)
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ./desktop
-          # Only set a tag (→ create a Release) when triggered by a tag push.
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: DiskSage ${{ github.ref_name }}
-          releaseBody: DiskSage desktop app.
-          releaseDraft: true
-          prerelease: false
+          # Upload to the release created above (empty on dispatch → build only).
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
 
       - name: Upload bundle artifact (manual runs)
