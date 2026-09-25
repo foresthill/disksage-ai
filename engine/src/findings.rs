@@ -95,6 +95,17 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         } else {
             String::new()
         };
+        // Aggregate findings (node_modules total, Caches total) aren't safe to
+        // delete whole, but can be drilled into to pick sub-items.
+        let drill = match crate::breakdown::Kind::for_finding(f.id) {
+            Some(k) => format!(
+                "<div style='margin-top:6px'><a href='/breakdown?kind={}' \
+                 style='font-size:13px'>{}</a></div>",
+                k.as_str(),
+                t("🔍 Pick items to delete →", "🔍 内訳を見て選ぶ →"),
+            ),
+            None => String::new(),
+        };
         out.push_str(&format!(
             "<div style='border-left:4px solid {c};background:#fff;border:1px solid #d0d7de;\
              border-radius:8px;padding:12px 14px;margin:10px 0'>\
@@ -102,11 +113,12 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
              border-radius:10px'>{}</span></div>\
              <div style='margin-top:6px'>{}</div>\
              <div style='color:#57606a;font-size:12px;margin-top:4px'>{}</div>\
-             <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}</div>",
+             <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}{}</div>",
             esc(&f.severity.to_uppercase()),
             esc(&f.description),
             esc(&f.path),
             esc(&f.action),
+            drill,
             ai_badge(ai_by_index.get(&idx).copied()),
         ));
     }

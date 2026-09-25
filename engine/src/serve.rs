@@ -12,6 +12,7 @@ use std::thread;
 use tiny_http::{Header, Method, Response, Server};
 
 use crate::ai::{self, Analysis};
+use crate::breakdown;
 use crate::lang::{self, is_ja, t};
 use crate::reports;
 use crate::scan::{self, Finding};
@@ -227,6 +228,34 @@ pub fn run(port: u16) -> Result<(), String> {
                 None => {
                     let _ = req
                         .respond(Response::from_string("report not found").with_status_code(404));
+                }
+            }
+            continue;
+        }
+        // Aggregate drill-down (node_modules / Library caches): GET renders the
+        // per-item picker; POST trashes the selected sub-items (validated
+        // structurally, never trusting the posted path).
+        if path == "/breakdown" {
+            if *req.method() == Method::Post {
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+                let loc = breakdown::handle_post(&body); // parse + validate + trash
+                let hdr = Header::from_bytes(&b"Location"[..], loc.as_bytes()).expect("hdr");
+                let _ = req.respond(Response::empty(303).with_header(hdr));
+                continue;
+            }
+            match reports::query_param(&url, "kind").and_then(breakdown::Kind::parse) {
+                Some(kind) => {
+                    let html = crate::page::shell(
+                        "scan",
+                        t("Scan", "スキャン"),
+                        &breakdown::page(kind),
+                        false,
+                    );
+                    let _ = req.respond(Response::from_string(html).with_header(ctype()));
+                }
+                None => {
+                    let _ = req.respond(Response::from_string("not found").with_status_code(404));
                 }
             }
             continue;
