@@ -108,3 +108,24 @@ pub fn saved_report(stamp: &str) -> Option<String> {
     }
     fs::read_to_string(scans_dir().join(format!("{stamp}.html"))).ok()
 }
+
+/// A saved report's `<body>` inner HTML, so it can be embedded inside the served
+/// shell (keeping the sidebar and a back link) instead of replacing the page.
+pub fn saved_report_body(stamp: &str) -> Option<String> {
+    saved_report(stamp).map(|doc| body_inner(&doc))
+}
+
+/// Extract the inner HTML of the first `<body …>` … `</body>`; falls back to the
+/// whole document if the markers aren't found. The report files are engine- or
+/// bash-generated, so the tags are always present in practice.
+fn body_inner(doc: &str) -> String {
+    if let Some(bstart) = doc.find("<body") {
+        if let Some(gt) = doc[bstart..].find('>') {
+            let after = bstart + gt + 1;
+            if let Some(bend) = doc[after..].find("</body>") {
+                return doc[after..after + bend].to_string();
+            }
+        }
+    }
+    doc.to_string()
+}
