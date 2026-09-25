@@ -47,10 +47,14 @@ fn cmd_ai(yes: bool, ai_log: bool) {
                 );
             }
             if let Some(u) = &analysis.usage {
-                println!(
+                print!(
                     "\n🪙 tokens: input {} / output {}",
                     u.input_tokens, u.output_tokens
                 );
+                match analysis.cost_usd {
+                    Some(c) => println!(" · 💵 ${c:.4}"),
+                    None => println!(),
+                }
             }
         }
         Err(e) => {
