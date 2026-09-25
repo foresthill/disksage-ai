@@ -67,6 +67,27 @@ fn resolve_from(
     Err("no API key found — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY".into())
 }
 
+/// Whether to route the analysis through the `claude` CLI instead of a BYOK HTTP
+/// call. Precedence: explicit DISKSAGE_AI_PROVIDER=claude-cli → yes; any other
+/// explicit provider → no; otherwise auto (no key set AND `claude` is installed).
+fn use_claude_cli() -> bool {
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    match env("DISKSAGE_AI_PROVIDER").as_deref() {
+        Some("claude-cli") => true,
+        Some(_) => false,
+        None => {
+            env("ANTHROPIC_API_KEY").is_none()
+                && env("OPENROUTER_API_KEY").is_none()
+                && crate::claude_cli::available().is_some()
+        }
+    }
+}
+
+/// True when an AI backend is usable: a BYOK HTTP key, or the `claude` CLI.
+pub fn available() -> bool {
+    use_claude_cli() || resolve_provider().is_ok()
+}
+
 /// Resolve the provider from the environment (BYOK).
 pub fn resolve_provider() -> Result<Provider, String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
@@ -95,6 +116,11 @@ pub fn analyze_with_audit(
     lang_ja: bool,
     audit_log: bool,
 ) -> Result<Analysis, String> {
+    // Prefer your installed, logged-in Claude Code (`claude -p`) when chosen or
+    // when no BYOK key is set — no separate API key needed.
+    if use_claude_cli() {
+        return crate::claude_cli::run(findings, lang_ja, audit_log);
+    }
     let p = resolve_provider()?;
     let body = build_request(findings, &p.model, lang_ja, std::env::consts::OS);
 
@@ -163,9 +189,12 @@ pub struct Usage {
 pub struct Analysis {
     pub judgments: Vec<Judgment>,
     pub usage: Option<Usage>,
+    /// Cost in USD when the backend reports it (the `claude` CLI does; the raw
+    /// HTTP API does not, and we don't guess per-model pricing).
+    pub cost_usd: Option<f64>,
 }
 
-fn output_schema() -> Value {
+pub fn output_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -190,25 +219,8 @@ fn output_schema() -> Value {
     })
 }
 
-/// Build the Claude Messages API request body (JSON string). Findings are masked
-/// here, so the returned body never contains a raw user path.
-pub fn build_request(findings: &[Finding], model: &str, lang_ja: bool, host_os: &str) -> String {
-    let mut aliases = mask::Aliases::new();
-    let items: Vec<Value> = findings
-        .iter()
-        .enumerate()
-        .map(|(i, f)| {
-            json!({
-                "index": i,
-                "pattern_id": f.id,
-                "path": mask::mask_path(&f.path, &mut aliases),
-                "size_bytes": f.size,
-                "heuristic_severity": f.severity,
-                "description": f.description,
-            })
-        })
-        .collect();
-
+/// The system instructions, shared by the HTTP body and the CLI prompt.
+fn system_text(lang_ja: bool) -> String {
     let mut system = String::from(
         "You are a disk-cleanup advisor for DiskSage, a tool that NEVER deletes anything \
          automatically — it only suggests. You receive disk-space findings as METADATA ONLY: \
@@ -226,21 +238,55 @@ pub fn build_request(findings: &[Finding], model: &str, lang_ja: bool, host_os: 
              recommendation/confidence enum values in English.",
         );
     }
+    system
+}
 
-    let user = format!(
+/// The user turn: masked findings as metadata. Paths are masked here, so this
+/// never contains a raw user path (whether sent over HTTP or to the CLI).
+fn user_text(findings: &[Finding], host_os: &str) -> String {
+    let mut aliases = mask::Aliases::new();
+    let items: Vec<Value> = findings
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            json!({
+                "index": i,
+                "pattern_id": f.id,
+                "path": mask::mask_path(&f.path, &mut aliases),
+                "size_bytes": f.size,
+                "heuristic_severity": f.severity,
+                "description": f.description,
+            })
+        })
+        .collect();
+    format!(
         "Host OS: {host_os}\nFindings (metadata only — no file contents):\n{}\n\n\
          Return a judgment for every finding, referenced by its index.",
         serde_json::to_string_pretty(&items).unwrap_or_default()
-    );
+    )
+}
 
+/// Build the Claude Messages API request body (JSON string). Findings are masked
+/// in `user_text`, so the returned body never contains a raw user path.
+pub fn build_request(findings: &[Finding], model: &str, lang_ja: bool, host_os: &str) -> String {
     json!({
         "model": model,
         "max_tokens": 4096,
-        "system": system,
+        "system": system_text(lang_ja),
         "output_config": {"format": {"type": "json_schema", "schema": output_schema()}},
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": user_text(findings, host_os)}],
     })
     .to_string()
+}
+
+/// Build a single prompt string for the `claude -p` CLI path (system + findings).
+/// Same masked metadata as `build_request`; the schema is passed via --json-schema.
+pub fn build_prompt(findings: &[Finding], lang_ja: bool, host_os: &str) -> String {
+    format!(
+        "{}\n\n{}",
+        system_text(lang_ja),
+        user_text(findings, host_os)
+    )
 }
 
 /// Parse a Claude API response into judgments + usage, surfacing API/refusal errors.
@@ -291,7 +337,11 @@ pub fn parse_response(raw: &str) -> Result<Analysis, String> {
                 .map_err(|e| format!("bad judgment entry: {e}"))?,
         );
     }
-    Ok(Analysis { judgments, usage })
+    Ok(Analysis {
+        judgments,
+        usage,
+        cost_usd: None, // the HTTP API doesn't report a dollar cost
+    })
 }
 
 #[cfg(test)]
