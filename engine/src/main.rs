@@ -38,12 +38,18 @@ fn cmd_ai(yes: bool, ai_log: bool) {
     }
     println!("\nContacting the AI…");
     match ai::analyze_with_audit(&findings, lang::is_ja(), audit::enabled(ai_log)) {
-        Ok(judgments) => {
+        Ok(analysis) => {
             println!();
-            for j in judgments {
+            for j in &analysis.judgments {
                 println!(
                     "  [{}] {} ({}) — {}",
                     j.index, j.recommendation, j.confidence, j.reasoning
+                );
+            }
+            if let Some(u) = &analysis.usage {
+                println!(
+                    "\n🪙 tokens: input {} / output {}",
+                    u.input_tokens, u.output_tokens
                 );
             }
         }
