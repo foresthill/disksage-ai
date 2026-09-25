@@ -106,20 +106,27 @@ mod tests {
     #[test]
     fn tsv_records_real_and_masked_with_matching_aliases() {
         let f = vec![
-            finding("node_modules_aggregate", "~/Development/Secret/node_modules"),
+            finding(
+                "node_modules_aggregate",
+                "~/Development/Secret/node_modules",
+            ),
             finding("ollama_models", "~/.ollama/models"),
         ];
         let tsv = masking_tsv(&f);
         assert!(tsv.starts_with("real\tmasked\tanonymized\n"));
         // Anonymized row: real name kept locally, masked column carries <dir1>.
-        assert!(tsv.contains("~/Development/Secret/node_modules\t~/Development/<dir1>/node_modules\tyes"));
+        assert!(tsv
+            .contains("~/Development/Secret/node_modules\t~/Development/<dir1>/node_modules\tyes"));
         // Safe path: unchanged, flagged "no".
         assert!(tsv.contains("~/.ollama/models\t~/.ollama/models\tno"));
     }
 
     #[test]
     fn masked_column_never_leaks_the_real_name() {
-        let f = vec![finding("node_modules_aggregate", "~/Development/SecretProject/node_modules")];
+        let f = vec![finding(
+            "node_modules_aggregate",
+            "~/Development/SecretProject/node_modules",
+        )];
         let tsv = masking_tsv(&f);
         // The masked half of the mapping must not contain the real user name.
         let masked_col = tsv
@@ -127,7 +134,10 @@ mod tests {
             .nth(1)
             .and_then(|l| l.split('\t').nth(1))
             .unwrap_or("");
-        assert!(!masked_col.contains("SecretProject"), "masked column leaked a real name");
+        assert!(
+            !masked_col.contains("SecretProject"),
+            "masked column leaked a real name"
+        );
         assert!(masked_col.contains("<dir1>"));
     }
 }

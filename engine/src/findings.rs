@@ -66,7 +66,10 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
     if findings.is_empty() {
         return format!(
             "<p style='color:#57606a'>{}</p>",
-            t("No findings above threshold. 🎉", "しきい値を超える項目はありません 🎉")
+            t(
+                "No findings above threshold. 🎉",
+                "しきい値を超える項目はありません 🎉"
+            )
         );
     }
     let ai_by_index: HashMap<usize, &Judgment> =

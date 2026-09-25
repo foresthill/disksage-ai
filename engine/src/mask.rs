@@ -8,20 +8,60 @@ use std::collections::HashMap;
 
 /// Known-safe, personal-info-free path components (compared lowercased).
 const SAFE: &[&str] = &[
-    "~", "library", "application support", "application scripts", "containers",
-    "group containers", "caches", "cache", "code cache", "gpucache", "developer",
-    "xcode", "deriveddata", "data", "vms", "private", "var", "vm", "mobilesync",
-    "backup", ".ollama", "models", "blobs", "manifests", ".disksage", "development",
-    "documents", "downloads", "desktop", "movies", "music", "pictures", "public",
-    "node_modules", "logs", "tmp", "com.docker.docker", "group.com.docker",
-    "dockerdesktop", "imobie", "anytrans", "3utools", "dearmob", "imazing",
+    "~",
+    "library",
+    "application support",
+    "application scripts",
+    "containers",
+    "group containers",
+    "caches",
+    "cache",
+    "code cache",
+    "gpucache",
+    "developer",
+    "xcode",
+    "deriveddata",
+    "data",
+    "vms",
+    "private",
+    "var",
+    "vm",
+    "mobilesync",
+    "backup",
+    ".ollama",
+    "models",
+    "blobs",
+    "manifests",
+    ".disksage",
+    "development",
+    "documents",
+    "downloads",
+    "desktop",
+    "movies",
+    "music",
+    "pictures",
+    "public",
+    "node_modules",
+    "logs",
+    "tmp",
+    "com.docker.docker",
+    "group.com.docker",
+    "dockerdesktop",
+    "imobie",
+    "anytrans",
+    "3utools",
+    "dearmob",
+    "imazing",
 ];
 
 /// Non-personal filenames kept as-is: swapfileN, sleepimage, docker.raw.
 fn file_ok(lc: &str) -> bool {
     lc == "sleepimage"
         || lc == "docker.raw"
-        || (lc.strip_prefix("swapfile").map(|rest| rest.chars().all(|c| c.is_ascii_digit())) == Some(true))
+        || (lc
+            .strip_prefix("swapfile")
+            .map(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+            == Some(true))
 }
 
 fn is_safe(c: &str) -> bool {
@@ -97,8 +137,14 @@ mod tests {
     #[test]
     fn keeps_special_files_and_passthrough() {
         let mut a = Aliases::new();
-        assert_eq!(mask_path("/private/var/vm/sleepimage", &mut a), "/private/var/vm/sleepimage");
-        assert_eq!(mask_path("/private/var/vm/swapfile3", &mut a), "/private/var/vm/swapfile3");
+        assert_eq!(
+            mask_path("/private/var/vm/sleepimage", &mut a),
+            "/private/var/vm/sleepimage"
+        );
+        assert_eq!(
+            mask_path("/private/var/vm/swapfile3", &mut a),
+            "/private/var/vm/swapfile3"
+        );
         assert_eq!(mask_path("/", &mut a), "/");
         assert_eq!(mask_path("~", &mut a), "~");
         assert!(a.is_empty());

@@ -245,7 +245,8 @@ pub fn build_request(findings: &[Finding], model: &str, lang_ja: bool, host_os: 
 
 /// Parse a Claude API response into judgments + usage, surfacing API/refusal errors.
 pub fn parse_response(raw: &str) -> Result<Analysis, String> {
-    let data: Value = serde_json::from_str(raw).map_err(|e| format!("response was not JSON: {e}"))?;
+    let data: Value =
+        serde_json::from_str(raw).map_err(|e| format!("response was not JSON: {e}"))?;
 
     if data.get("type").and_then(Value::as_str) == Some("error") {
         let err = data.get("error").cloned().unwrap_or(Value::Null);
@@ -311,12 +312,21 @@ mod tests {
 
     #[test]
     fn request_masks_paths_and_never_leaks_real_names() {
-        let f = vec![finding("node_modules_aggregate", "~/Development/SecretProject/node_modules")];
+        let f = vec![finding(
+            "node_modules_aggregate",
+            "~/Development/SecretProject/node_modules",
+        )];
         let body = build_request(&f, "claude-x", true, "macos");
         assert!(body.contains("<dir1>"), "user dir must be anonymized");
-        assert!(!body.contains("SecretProject"), "raw user name must NOT be sent");
+        assert!(
+            !body.contains("SecretProject"),
+            "raw user name must NOT be sent"
+        );
         assert!(body.contains("metadata only"));
-        assert!(body.contains("Japanese"), "lang_ja adds the reasoning-language line");
+        assert!(
+            body.contains("Japanese"),
+            "lang_ja adds the reasoning-language line"
+        );
         assert!(body.contains("\"model\":\"claude-x\""));
     }
 
@@ -358,7 +368,9 @@ mod tests {
     #[test]
     fn surfaces_api_error_and_refusal() {
         let err = r#"{"type":"error","error":{"type":"authentication_error","message":"bad key"}}"#;
-        assert!(parse_response(err).unwrap_err().contains("authentication_error"));
+        assert!(parse_response(err)
+            .unwrap_err()
+            .contains("authentication_error"));
         let refusal = r#"{"stop_reason":"refusal","content":[]}"#;
         assert!(parse_response(refusal).unwrap_err().contains("declined"));
     }
