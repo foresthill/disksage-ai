@@ -8,6 +8,7 @@
 pub mod ai;
 pub mod ai_ui;
 pub mod audit;
+pub mod breakdown;
 pub mod claude_cli;
 pub mod deep;
 pub mod df;
