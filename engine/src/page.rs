@@ -5,6 +5,47 @@ use crate::df;
 use crate::lang::{is_ja, t};
 use crate::util::{esc, human};
 
+/// The left sidebar nav. `active` is the current section key (scan/reports/settings).
+fn sidebar(active: &str) -> String {
+    let item = |href: &str, icon: &str, label: &str, key: &str| {
+        let bg = if key == active { "background:#30363d;" } else { "" };
+        format!(
+            "<a href='{href}' style='display:block;padding:10px 12px;border-radius:8px;\
+             color:#fff;text-decoration:none;margin:2px 0;font-size:14px;{bg}'>{icon} {label}</a>"
+        )
+    };
+    format!(
+        "<nav style='position:fixed;left:0;top:0;bottom:0;width:200px;background:#1f2328;\
+         color:#fff;padding:18px 14px;box-sizing:border-box;z-index:20;overflow:auto'>\
+         <div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>{}{}{}</nav>",
+        item("/", "🔍", t("Scan", "スキャン"), "scan"),
+        item("/reports", "📁", t("Reports", "レポート"), "reports"),
+        item("/settings", "⚙️", t("Settings", "設定"), "settings"),
+    )
+}
+
+/// The full HTML document: sidebar + a centered content card. `refresh` injects a
+/// 2s meta-refresh (used while a scan/AI call is in flight).
+pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
+    let meta = if refresh {
+        "<meta http-equiv='refresh' content='2'>"
+    } else {
+        ""
+    };
+    format!(
+        "<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>{meta}\
+         <meta name='viewport' content='width=device-width, initial-scale=1'>\
+         <title>DiskSage — {title}</title>\
+         <style>body{{padding-left:200px}}@media(max-width:640px){{body{{padding-left:0}}}}</style></head>\
+         <body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;\
+         margin:0;background:#f6f8fa;color:#1f2328'>{sidebar}\
+         <div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;\
+         border-radius:12px;padding:28px 32px'>{body}</div></body></html>",
+        lang = t("en", "ja"),
+        sidebar = sidebar(active),
+    )
+}
+
 /// The disk-usage overview: one bar per APFS container + a snapshot warning.
 pub fn overview_html() -> String {
     let heading = t(
