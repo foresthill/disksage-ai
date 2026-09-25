@@ -61,11 +61,10 @@ fn scan_page(state: &State) -> (String, bool) {
     let s = state.lock().unwrap();
     match &s.findings {
         Some(found) => {
-            let ai_ref = s
-                .ai
-                .as_ref()
-                .and_then(|r| r.as_ref().ok())
-                .map(|a| a.judgments.as_slice());
+            let ai_ref =
+                s.ai.as_ref()
+                    .and_then(|r| r.as_ref().ok())
+                    .map(|a| a.judgments.as_slice());
             body.push_str(&crate::findings::findings_html(found, ai_ref));
             body.push_str(&crate::ai_ui::ai_controls(s.ai.as_ref(), s.ai_running));
             body.push_str(&crate::deep::section_html(s.deep.as_ref(), s.deep_running));
@@ -95,9 +94,8 @@ pub fn run(port: u16) -> Result<(), String> {
     let state: State = Arc::new(Mutex::new(ScanState::default()));
     trigger_scan(state.clone());
     eprintln!("DiskSage engine serving on http://127.0.0.1:{port}  (Ctrl-C to stop)");
-    let ctype = || {
-        Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr")
-    };
+    let ctype =
+        || Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr");
     for mut req in server.incoming_requests() {
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("/");
@@ -222,11 +220,13 @@ pub fn run(port: u16) -> Result<(), String> {
                          <a href='/'>← スキャンに戻る</a></div>",
                     );
                     let body = format!("{banner}{inner}");
-                    let html = crate::page::shell("reports", t("Reports", "レポート"), &body, false);
+                    let html =
+                        crate::page::shell("reports", t("Reports", "レポート"), &body, false);
                     let _ = req.respond(Response::from_string(html).with_header(ctype()));
                 }
                 None => {
-                    let _ = req.respond(Response::from_string("report not found").with_status_code(404));
+                    let _ = req
+                        .respond(Response::from_string("report not found").with_status_code(404));
                 }
             }
             continue;
@@ -236,10 +236,20 @@ pub fn run(port: u16) -> Result<(), String> {
                 let (body, refresh) = scan_page(&state);
                 crate::page::shell("scan", t("Scan", "スキャン"), &body, refresh)
             }
-            "/reports" => crate::page::shell("reports", t("Reports", "レポート"), &reports::reports_html(), false),
+            "/reports" => crate::page::shell(
+                "reports",
+                t("Reports", "レポート"),
+                &reports::reports_html(),
+                false,
+            ),
             "/settings" => {
                 let saved = reports::query_param(&url, "saved").is_some();
-                crate::page::shell("settings", t("Settings", "設定"), &settings::settings_html(saved), false)
+                crate::page::shell(
+                    "settings",
+                    t("Settings", "設定"),
+                    &settings::settings_html(saved),
+                    false,
+                )
             }
             _ => {
                 let _ = req.respond(Response::from_string("not found").with_status_code(404));

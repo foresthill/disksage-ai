@@ -54,7 +54,10 @@ fn findings_html(findings: &[Finding]) -> String {
     if findings.is_empty() {
         return format!(
             "<p>{}</p>",
-            t("No findings above threshold.", "しきい値を超える項目はありません。")
+            t(
+                "No findings above threshold.",
+                "しきい値を超える項目はありません。"
+            )
         );
     }
     let mut out = String::new();

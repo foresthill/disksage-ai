@@ -8,7 +8,11 @@ use crate::util::{esc, human};
 /// The left sidebar nav. `active` is the current section key (scan/reports/settings).
 fn sidebar(active: &str) -> String {
     let item = |href: &str, icon: &str, label: &str, key: &str| {
-        let bg = if key == active { "background:#30363d;" } else { "" };
+        let bg = if key == active {
+            "background:#30363d;"
+        } else {
+            ""
+        };
         format!(
             "<a href='{href}' style='display:block;padding:10px 12px;border-radius:8px;\
              color:#fff;text-decoration:none;margin:2px 0;font-size:14px;{bg}'>{icon} {label}</a>"

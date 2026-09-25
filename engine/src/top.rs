@@ -52,7 +52,11 @@ pub fn biggest_folders(n: usize) -> Vec<(String, u64)> {
         .into_iter()
         .map(|p| {
             thread::spawn(move || {
-                let size = if p.is_dir() { dir_size(&p) } else { file_size(&p) };
+                let size = if p.is_dir() {
+                    dir_size(&p)
+                } else {
+                    file_size(&p)
+                };
                 (tildify(&p), size)
             })
         })

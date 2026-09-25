@@ -40,7 +40,11 @@ fn walk(dir: &Path, now: SystemTime, out: &mut Vec<(u64, String)>) {
             }
         } else if ft.is_file() && meta.len() > MIN_SIZE {
             if let Ok(modified) = meta.modified() {
-                if now.duration_since(modified).map(|d| d < WINDOW).unwrap_or(false) {
+                if now
+                    .duration_since(modified)
+                    .map(|d| d < WINDOW)
+                    .unwrap_or(false)
+                {
                     out.push((meta.len(), tildify(&path)));
                 }
             }
@@ -66,7 +70,8 @@ pub fn recent_large(n: usize) -> Vec<(u64, String)> {
 pub fn is_media(path: &str) -> bool {
     const EXTS: &[&str] = &[
         ".mov", ".mp4", ".m4v", ".avi", ".mkv", ".heic", ".jpg", ".jpeg", ".png", ".gif", ".tiff",
-        ".raw", ".wav", ".aiff", ".flac", ".mp3", ".m4a", ".logicx", ".als", ".psd", ".ai", ".prproj",
+        ".raw", ".wav", ".aiff", ".flac", ".mp3", ".m4a", ".logicx", ".als", ".psd", ".ai",
+        ".prproj",
     ];
     let lower = path.to_lowercase();
     EXTS.iter().any(|e| lower.ends_with(e))
