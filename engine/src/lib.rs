@@ -6,9 +6,12 @@
 //! the app work on Windows/Linux.
 
 pub mod ai;
+pub mod ai_ui;
 pub mod audit;
+pub mod deep;
 pub mod df;
 pub mod findings;
+pub mod flow;
 pub mod lang;
 pub mod mask;
 pub mod page;
@@ -17,6 +20,7 @@ pub mod reports;
 pub mod scan;
 pub mod serve;
 pub mod settings;
+pub mod top;
 pub mod trash;
 pub mod util;
 pub mod walk;

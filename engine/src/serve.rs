@@ -17,7 +17,7 @@ use crate::reports;
 use crate::scan::{self, Finding};
 use crate::settings;
 use crate::trash;
-use crate::util::{esc, percent_decode};
+use crate::util::percent_decode;
 
 /// Shared scan state: findings are computed off the request path so `/` stays
 /// responsive while the (slow) directory walk runs. AI judgments are opt-in and
@@ -28,6 +28,8 @@ struct ScanState {
     findings: Option<Vec<Finding>>,
     ai: Option<Result<Analysis, String>>,
     ai_running: bool,
+    deep: Option<crate::deep::DeepScan>,
+    deep_running: bool,
 }
 type State = Arc<Mutex<ScanState>>;
 
@@ -43,119 +45,9 @@ fn trigger_scan(state: State) {
         let mut s = state.lock().unwrap();
         s.findings = Some(found);
         s.ai = None; // previous judgments were for the old findings/indices
+        s.deep = None; // deep results were for the previous scan
         s.scanning = false;
     });
-}
-
-fn sidebar(active: &str) -> String {
-    let item = |href: &str, icon: &str, label: &str, key: &str| {
-        let bg = if key == active { "background:#30363d;" } else { "" };
-        format!(
-            "<a href='{href}' style='display:block;padding:10px 12px;border-radius:8px;\
-             color:#fff;text-decoration:none;margin:2px 0;font-size:14px;{bg}'>{icon} {label}</a>"
-        )
-    };
-    format!(
-        "<nav style='position:fixed;left:0;top:0;bottom:0;width:200px;background:#1f2328;\
-         color:#fff;padding:18px 14px;box-sizing:border-box;z-index:20;overflow:auto'>\
-         <div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>{}{}{}</nav>",
-        item("/", "🔍", t("Scan", "スキャン"), "scan"),
-        item("/reports", "📁", t("Reports", "レポート"), "reports"),
-        item("/settings", "⚙️", t("Settings", "設定"), "settings"),
-    )
-}
-
-fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
-    let meta = if refresh {
-        "<meta http-equiv='refresh' content='2'>"
-    } else {
-        ""
-    };
-    format!(
-        "<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>{meta}\
-         <meta name='viewport' content='width=device-width, initial-scale=1'>\
-         <title>DiskSage — {title}</title>\
-         <style>body{{padding-left:200px}}@media(max-width:640px){{body{{padding-left:0}}}}</style></head>\
-         <body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;\
-         margin:0;background:#f6f8fa;color:#1f2328'>{sidebar}\
-         <div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;\
-         border-radius:12px;padding:28px 32px'>{body}</div></body></html>",
-        lang = t("en", "ja"),
-        sidebar = sidebar(active),
-    )
-}
-
-
-fn ai_configured() -> bool {
-    ai::resolve_provider().is_ok()
-}
-
-fn ai_button(rerun: bool) -> String {
-    let label = if rerun {
-        t("🧠 Re-run AI judgment", "🧠 AI再判定")
-    } else {
-        t("🧠 Ask the AI to judge", "🧠 AIに判定してもらう")
-    };
-    let note = t(
-        "Sends masked metadata only (no file contents) to your configured provider.",
-        "設定済みプロバイダにマスク済みメタデータのみ送信（ファイル内容は送りません）。",
-    );
-    format!(
-        "<form method='post' action='/ai' style='margin-top:12px'>\
-         <button type='submit' style='background:#8250df;color:#fff;border:0;border-radius:8px;\
-         padding:9px 18px;font-size:14px;cursor:pointer'>{label}</button>\
-         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div></form>"
-    )
-}
-
-/// The AI area under the findings: running banner, error, an opt-in button, or a
-/// note when no BYOK key is configured.
-fn ai_controls(s: &ScanState) -> String {
-    if s.ai_running {
-        return t(
-            "<div style='margin-top:12px;padding:12px 14px;background:#ddf4ff;border:1px solid \
-             #b6e3ff;border-radius:8px;font-size:14px'>🧠 Asking the AI…</div>",
-            "<div style='margin-top:12px;padding:12px 14px;background:#ddf4ff;border:1px solid \
-             #b6e3ff;border-radius:8px;font-size:14px'>🧠 AI が判定中…</div>",
-        )
-        .to_string();
-    }
-    if let Some(Err(e)) = &s.ai {
-        return format!(
-            "<div style='margin-top:12px;padding:10px 14px;background:#ffebe9;border:1px solid \
-             #ff8182;border-radius:8px;font-size:13px'>⚠️ {} {}</div>{}",
-            t("AI request failed:", "AI判定に失敗:"),
-            esc(e),
-            ai_button(true),
-        );
-    }
-    // A completed analysis: show the token usage (factual, from the API) + re-run.
-    if let Some(Ok(a)) = &s.ai {
-        let usage = a
-            .usage
-            .as_ref()
-            .map(|u| {
-                format!(
-                    "<div style='margin-top:12px;font-size:13px;color:#57606a'>🪙 {}: {} · {}: {}</div>",
-                    t("input tokens", "入力トークン"),
-                    u.input_tokens,
-                    t("output tokens", "出力トークン"),
-                    u.output_tokens,
-                )
-            })
-            .unwrap_or_default();
-        return format!("{usage}{}", ai_button(true));
-    }
-    if !ai_configured() {
-        return format!(
-            "<div style='margin-top:12px;color:#57606a;font-size:13px'>{}</div>",
-            t(
-                "AI judgment is available when a BYOK key is set (ANTHROPIC_API_KEY or OPENROUTER_API_KEY).",
-                "AI判定は BYOK キー設定時に使えます（ANTHROPIC_API_KEY または OPENROUTER_API_KEY）。",
-            )
-        );
-    }
-    ai_button(s.ai.is_some())
 }
 
 /// The Scan page: overview (instant) + findings (or a scanning banner). Returns
@@ -175,8 +67,10 @@ fn scan_page(state: &State) -> (String, bool) {
                 .and_then(|r| r.as_ref().ok())
                 .map(|a| a.judgments.as_slice());
             body.push_str(&crate::findings::findings_html(found, ai_ref));
-            body.push_str(&ai_controls(&s));
-            (body, s.ai_running) // auto-refresh while an AI call is in flight
+            body.push_str(&crate::ai_ui::ai_controls(s.ai.as_ref(), s.ai_running));
+            body.push_str(&crate::deep::section_html(s.deep.as_ref(), s.deep_running));
+            // Auto-refresh while an AI call or the Full scan is in flight.
+            (body, s.ai_running || s.deep_running)
         }
         None => {
             body.push_str(t(
@@ -234,6 +128,32 @@ pub fn run(port: u16) -> Result<(), String> {
                     let mut s = st.lock().unwrap();
                     s.ai = Some(result);
                     s.ai_running = false;
+                });
+            }
+            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
+            continue;
+        }
+        // Full ("じっくり") scan (opt-in): biggest folders + recently-grown files,
+        // computed off the request thread because it walks all of $HOME.
+        if path == "/fullscan" && *req.method() == Method::Post {
+            let go = {
+                let mut s = state.lock().unwrap();
+                if s.deep_running {
+                    false
+                } else {
+                    s.deep_running = true;
+                    s.deep = None;
+                    true
+                }
+            };
+            if go {
+                let st = state.clone();
+                thread::spawn(move || {
+                    let result = crate::deep::run();
+                    let mut s = st.lock().unwrap();
+                    s.deep = Some(result);
+                    s.deep_running = false;
                 });
             }
             let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
@@ -302,7 +222,7 @@ pub fn run(port: u16) -> Result<(), String> {
                          <a href='/'>← スキャンに戻る</a></div>",
                     );
                     let body = format!("{banner}{inner}");
-                    let html = shell("reports", t("Reports", "レポート"), &body, false);
+                    let html = crate::page::shell("reports", t("Reports", "レポート"), &body, false);
                     let _ = req.respond(Response::from_string(html).with_header(ctype()));
                 }
                 None => {
@@ -314,12 +234,12 @@ pub fn run(port: u16) -> Result<(), String> {
         let html = match path {
             "/" | "/index.html" => {
                 let (body, refresh) = scan_page(&state);
-                shell("scan", t("Scan", "スキャン"), &body, refresh)
+                crate::page::shell("scan", t("Scan", "スキャン"), &body, refresh)
             }
-            "/reports" => shell("reports", t("Reports", "レポート"), &reports::reports_html(), false),
+            "/reports" => crate::page::shell("reports", t("Reports", "レポート"), &reports::reports_html(), false),
             "/settings" => {
                 let saved = reports::query_param(&url, "saved").is_some();
-                shell("settings", t("Settings", "設定"), &settings::settings_html(saved), false)
+                crate::page::shell("settings", t("Settings", "設定"), &settings::settings_html(saved), false)
             }
             _ => {
                 let _ = req.respond(Response::from_string("not found").with_status_code(404));
