@@ -24,6 +24,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Blocking HTTPS client for the BYOK AI call (pure-Rust TLS via rustls).
 ureq = "2"
+# Cross-platform OS UI locale (macOS/Windows/Linux) so the report language
+# auto-defaults correctly everywhere — not just from macOS AppleLocale.
+sys-locale = "0.3"
 
 [profile.release]
 strip = true
