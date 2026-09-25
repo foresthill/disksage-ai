@@ -18,8 +18,10 @@ fn starts_ja(s: &str) -> bool {
     s.trim().to_lowercase().starts_with("ja")
 }
 
-/// Precedence: DISKSAGE_LANG env → config `lang=` → $LC_ALL/$LANG → macOS
-/// AppleLocale → English. Mirrors the bash `ai_lang`.
+/// Precedence: DISKSAGE_LANG env → config `lang=` → $LC_ALL/$LANG → the OS UI
+/// locale (cross-platform) → English. The OS-locale step means a Japanese
+/// Windows or Linux (not just macOS) auto-defaults to Japanese, instead of
+/// surprising the user with English.
 fn detect() -> bool {
     if let Ok(v) = std::env::var("DISKSAGE_LANG") {
         if !v.is_empty() {
@@ -37,16 +39,9 @@ fn detect() -> bool {
             }
         }
     }
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(out) = std::process::Command::new("defaults")
-            .args(["read", "-g", "AppleLocale"])
-            .output()
-        {
-            if out.status.success() {
-                return starts_ja(&String::from_utf8_lossy(&out.stdout));
-            }
-        }
+    // OS UI locale, e.g. "ja-JP" — works on macOS, Windows and Linux.
+    if let Some(loc) = sys_locale::get_locale() {
+        return starts_ja(&loc);
     }
     false
 }
