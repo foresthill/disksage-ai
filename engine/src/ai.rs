@@ -82,7 +82,7 @@ pub fn resolve_provider() -> Result<Provider, String> {
 /// Mask → build → POST (BYOK) → parse. The only place a request leaves the
 /// machine; the body is metadata-only and paths are already masked in build_request.
 /// Audit logging is enabled by `--ai-log` / `DISKSAGE_AI_LOG=1`.
-pub fn analyze(findings: &[Finding], lang_ja: bool) -> Result<Vec<Judgment>, String> {
+pub fn analyze(findings: &[Finding], lang_ja: bool) -> Result<Analysis, String> {
     analyze_with_audit(findings, lang_ja, audit::enabled(false))
 }
 
@@ -94,7 +94,7 @@ pub fn analyze_with_audit(
     findings: &[Finding],
     lang_ja: bool,
     audit_log: bool,
-) -> Result<Vec<Judgment>, String> {
+) -> Result<Analysis, String> {
     let p = resolve_provider()?;
     let body = build_request(findings, &p.model, lang_ja, std::env::consts::OS);
 
@@ -146,6 +146,23 @@ pub struct Judgment {
     pub confidence: String,     // high | medium | low
     #[serde(default)]
     pub reasoning: String,
+}
+
+/// Token usage reported by the API (metadata about the call itself).
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct Usage {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+}
+
+/// The result of an AI analysis: the per-finding judgments plus the token usage,
+/// so callers can show "how much did this cost" without re-reading the raw log.
+#[derive(Debug)]
+pub struct Analysis {
+    pub judgments: Vec<Judgment>,
+    pub usage: Option<Usage>,
 }
 
 fn output_schema() -> Value {
@@ -226,8 +243,8 @@ pub fn build_request(findings: &[Finding], model: &str, lang_ja: bool, host_os: 
     .to_string()
 }
 
-/// Parse a Claude API response into judgments, surfacing API/refusal errors.
-pub fn parse_response(raw: &str) -> Result<Vec<Judgment>, String> {
+/// Parse a Claude API response into judgments + usage, surfacing API/refusal errors.
+pub fn parse_response(raw: &str) -> Result<Analysis, String> {
     let data: Value = serde_json::from_str(raw).map_err(|e| format!("response was not JSON: {e}"))?;
 
     if data.get("type").and_then(Value::as_str) == Some("error") {
@@ -241,6 +258,11 @@ pub fn parse_response(raw: &str) -> Result<Vec<Judgment>, String> {
     if data.get("stop_reason").and_then(Value::as_str) == Some("refusal") {
         return Err("the model declined to analyze these findings".into());
     }
+
+    // Token usage is on the top-level response object (not in the content block).
+    let usage = data
+        .get("usage")
+        .and_then(|u| serde_json::from_value::<Usage>(u.clone()).ok());
 
     let text = data
         .get("content")
@@ -261,14 +283,14 @@ pub fn parse_response(raw: &str) -> Result<Vec<Judgment>, String> {
         .and_then(Value::as_array)
         .ok_or("response had no judgments array")?;
 
-    let mut out = Vec::with_capacity(arr.len());
+    let mut judgments = Vec::with_capacity(arr.len());
     for j in arr {
-        out.push(
+        judgments.push(
             serde_json::from_value::<Judgment>(j.clone())
                 .map_err(|e| format!("bad judgment entry: {e}"))?,
         );
     }
-    Ok(out)
+    Ok(Analysis { judgments, usage })
 }
 
 #[cfg(test)]
@@ -300,12 +322,15 @@ mod tests {
 
     #[test]
     fn parses_a_normal_response() {
-        let raw = r#"{"content":[{"type":"text","text":"{\"judgments\":[{\"index\":0,\"recommendation\":\"safe_to_delete\",\"confidence\":\"high\",\"reasoning\":\"regenerable cache\"}]}"}],"usage":{"input_tokens":10}}"#;
-        let js = parse_response(raw).expect("should parse");
-        assert_eq!(js.len(), 1);
-        assert_eq!(js[0].index, 0);
-        assert_eq!(js[0].recommendation, "safe_to_delete");
-        assert_eq!(js[0].confidence, "high");
+        let raw = r#"{"content":[{"type":"text","text":"{\"judgments\":[{\"index\":0,\"recommendation\":\"safe_to_delete\",\"confidence\":\"high\",\"reasoning\":\"regenerable cache\"}]}"}],"usage":{"input_tokens":10,"output_tokens":5}}"#;
+        let a = parse_response(raw).expect("should parse");
+        assert_eq!(a.judgments.len(), 1);
+        assert_eq!(a.judgments[0].index, 0);
+        assert_eq!(a.judgments[0].recommendation, "safe_to_delete");
+        assert_eq!(a.judgments[0].confidence, "high");
+        let u = a.usage.expect("usage parsed");
+        assert_eq!(u.input_tokens, 10);
+        assert_eq!(u.output_tokens, 5);
     }
 
     #[test]

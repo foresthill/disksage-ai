@@ -11,7 +11,7 @@ use std::thread;
 
 use tiny_http::{Header, Method, Response, Server};
 
-use crate::ai::{self, Judgment};
+use crate::ai::{self, Analysis};
 use crate::lang::{self, is_ja, t};
 use crate::reports;
 use crate::scan::{self, Finding};
@@ -26,7 +26,7 @@ use crate::util::{esc, percent_decode};
 struct ScanState {
     scanning: bool,
     findings: Option<Vec<Finding>>,
-    ai: Option<Result<Vec<Judgment>, String>>,
+    ai: Option<Result<Analysis, String>>,
     ai_running: bool,
 }
 type State = Arc<Mutex<ScanState>>;
@@ -129,6 +129,23 @@ fn ai_controls(s: &ScanState) -> String {
             ai_button(true),
         );
     }
+    // A completed analysis: show the token usage (factual, from the API) + re-run.
+    if let Some(Ok(a)) = &s.ai {
+        let usage = a
+            .usage
+            .as_ref()
+            .map(|u| {
+                format!(
+                    "<div style='margin-top:12px;font-size:13px;color:#57606a'>🪙 {}: {} · {}: {}</div>",
+                    t("input tokens", "入力トークン"),
+                    u.input_tokens,
+                    t("output tokens", "出力トークン"),
+                    u.output_tokens,
+                )
+            })
+            .unwrap_or_default();
+        return format!("{usage}{}", ai_button(true));
+    }
     if !ai_configured() {
         return format!(
             "<div style='margin-top:12px;color:#57606a;font-size:13px'>{}</div>",
@@ -152,7 +169,11 @@ fn scan_page(state: &State) -> (String, bool) {
     let s = state.lock().unwrap();
     match &s.findings {
         Some(found) => {
-            let ai_ref = s.ai.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.as_slice());
+            let ai_ref = s
+                .ai
+                .as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .map(|a| a.judgments.as_slice());
             body.push_str(&crate::findings::findings_html(found, ai_ref));
             body.push_str(&ai_controls(&s));
             (body, s.ai_running) // auto-refresh while an AI call is in flight
