@@ -105,8 +105,8 @@ pub fn settings_html(saved: bool) -> String {
         title = t("⚙️ Settings", "⚙️ 設定"),
         lang_h = t("Report language", "レポートの言語"),
         note = t(
-            "Applies to new scans; restart to switch the whole UI.",
-            "新しいスキャンから反映。UI全体は再起動で切替。"
+            "Applies immediately to the whole UI — no restart needed.",
+            "UI 全体にすぐ反映されます（再起動不要）。"
         ),
         save = t("Save", "保存"),
         about = t("About", "情報"),
