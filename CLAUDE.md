@@ -125,7 +125,8 @@
 
 **置換（実装済 ✅・ユーザー目視確認済）**: `desktop/src-tauri/src/lib.rs` に **Tauri トレイ**を実装。`setup_tray()`＝`TrayIconBuilder`（id=`disksage-tray`）で `set_title(free_title())` にバー表示、メニュー（Open DiskSage / Quit）、30秒毎に別スレッドから `tray_by_id().set_title()` で更新。空きは **`sysinfo` で in-process 取得**（`free_title()`＝起動ディスク`/`の available、fallback は最大disk）＝**サブプロセスも権限要求も無し**（SwiftBar の権限ダイアログ問題が消える）。Cargo に `tauri features=["tray-icon"]`＋`sysinfo`。`cargo build` 38秒で通過→起動・無クラッシュ→**ユーザーがメニューバーに `💾 <空き>` を目視確認**（2026-09-16）。`TrayIcon::set_title` は macOS対応/Win非対応/Linux部分（[APIリファレンス](https://docs.rs/tauri/latest/tauri/tray/struct.TrayIcon.html)）＝Win/Linux では将来アイコン＋tooltip＋メニューで空きを見せる。
 - engine crate 統合 ✅：desktop の `free_title()` は `disksage_engine::df::startup_free()`＋`util::human()` を呼ぶ（sysinfo 直呼び重複を解消・CLI と同一ロジック）。desktop Cargo に `disksage-engine = { path = "../../engine" }`
-- 残（磨き込み）: Dockアイコン非表示でメニューバー専用化（`ActivationPolicy::Accessory`）／ログイン時自動起動／窓を閉じても常駐／配布は #17 の .dmg CI に同梱
+- **トレイ恒久化 ✅（2026-09-25）**：`lib.rs` に3点実装＝①**窓を閉じても常駐**（`on_window_event` の `CloseRequested` で `window.hide()`＋`api.prevent_close()`＝quit しない・トレイに残る）②**Dockアイコン非表示**（macOS `set_activation_policy(ActivationPolicy::Accessory)`＝メニューバー専用）③**ログイン時自動起動トグル**（`tauri-plugin-autostart` v2・`Builder::new().app_name("DiskSage").build()`＝公式 v2 API を context7 で確認、旧 `init(MacosLauncher…)` は非推奨。トレイに opt-in `CheckMenuItem`「Start at Login」＝透明性重視で自動登録せずユーザー操作。`app.autolaunch().enable/disable/is_enabled`、capabilities に `autostart:default` 追加）。**検証**：dev ビルドで compile＋clippy クリーン（`set_activation_policy` は `()` 返り＝`let _` を clippy が指摘→修正）。**注意**：dev ではログイン項目が debug バイナリ(`target/debug/desktop`)を指す＝実自動起動はバンドル版で。GUI 実挙動（閉→隠れる/Dock消滅）はユーザー目視で確認。desktop は CI 非対象のためリリースビルド(desktop.yml 3OS)がクロス OS コンパイル検証を兼ねる
+- 残（磨き込み）: 配布は #17 の .dmg CI に同梱／`:8765` を既存プロセスが掴んでいると in-process serve が bind 失敗（既存 UI にフォールバック＝機能はする）
 
 ### 将来 Phase（0.3+）: Rust リライト
 
