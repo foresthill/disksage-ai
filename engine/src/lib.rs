@@ -20,6 +20,7 @@ pub mod page;
 pub mod report;
 pub mod reports;
 pub mod scan;
+pub mod secret;
 pub mod serve;
 pub mod settings;
 pub mod top;
