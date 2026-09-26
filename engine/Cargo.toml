@@ -29,8 +29,10 @@ ureq = "2"
 sys-locale = "0.3"
 # OS keychain for the BYOK API key (macOS Keychain / Windows Credential Manager /
 # Linux Secret Service) — so the key is never written to disk in plaintext.
-# crypto-rust keeps the Linux secret-service path pure-Rust (no OpenSSL/dbus libs).
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# On Linux use the ASYNC secret-service (zbus) + crypto-rust + async-io, which is
+# pure-Rust — no system libdbus/OpenSSL needed to build (sync-secret-service pulls
+# libdbus-sys, which fails on a bare CI runner).
+keyring = { version = "3", features = ["apple-native", "windows-native", "async-secret-service", "crypto-rust", "async-io"] }
 
 [profile.release]
 strip = true
