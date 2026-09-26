@@ -338,6 +338,18 @@ pub fn collect() -> Vec<Finding> {
             "削除して安全。シミュレータが再生成します。",
         ),
     );
+    dir_pattern(
+        &mut f,
+        home.join("Library/Developer/CoreSimulator/Devices"),
+        5 * GIB,
+        "coresimulator_devices",
+        "medium",
+        t("CoreSimulator devices", "CoreSimulator のデバイス"),
+        t(
+            "Delete unused simulators in Xcode — deleting also wipes their installed apps and state.",
+            "未使用シミュレータを Xcode で削除。削除するとアプリ/状態も消えます。",
+        ),
+    );
 
     // Docker.raw — a single VM disk file that never auto-shrinks.
     let docker = home.join("Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw");
@@ -357,8 +369,56 @@ pub fn collect() -> Vec<Finding> {
     check_iphone_backup(&mut f, &home); // Manifest.db corruption check
     check_apfs_snapshots(&mut f); // tmutil (macOS)
     check_vm_swap(&mut f); // /private/var/vm (macOS)
+    check_electron_cache(&mut f, &home); // per-app Cache/Code Cache/GPUCache
 
     f
+}
+
+/// Electron apps' Cache / Code Cache / GPUCache under ~/Library/Application
+/// Support/<app>, summed per app (safe to clear; the app path itself is kept, so
+/// this is report-only — not in the one-click delete whitelist).
+fn check_electron_cache(f: &mut Vec<Finding>, home: &Path) {
+    let appsup = home.join("Library/Application Support");
+    let rd = match std::fs::read_dir(&appsup) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    for e in rd.flatten() {
+        let d = e.path();
+        if !d.is_dir() {
+            continue;
+        }
+        let mut total = 0u64;
+        for cache in ["Cache", "Code Cache", "GPUCache"] {
+            let cdir = d.join(cache);
+            if cdir.is_dir() {
+                total += dir_size(&cdir);
+            }
+        }
+        if total > 500 * 1024 * 1024 {
+            let app = d
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let desc = if is_ja() {
+                format!("{app} の Electron キャッシュ: {}", human(total))
+            } else {
+                format!("{app} Electron caches: {}", human(total))
+            };
+            f.push(Finding {
+                id: "electron_cache",
+                path: tildify(&d),
+                size: total,
+                severity: "safe",
+                description: desc,
+                action: t(
+                    "Quit the app, then delete its Cache / Code Cache / GPUCache folders.",
+                    "アプリを終了し、その Cache / Code Cache / GPUCache フォルダを削除。",
+                )
+                .into(),
+            });
+        }
+    }
 }
 
 pub fn run(json: bool) {
