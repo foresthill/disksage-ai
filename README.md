@@ -265,7 +265,7 @@ Known patterns bundled in the initial release:
 | pnpm store | Content-addressable store, shared across projects (`pnpm store prune`; >5GB) | 🟢 Safe |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
-Patterns are declarative JSON — community contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+The simple size-threshold patterns are declarative JSON in [`patterns/builtin.json`](./patterns/) — add your own there (PR) or in `~/.disksage/patterns.json`, no rebuild needed. See [patterns/README.md](./patterns/README.md). Community contributions welcome.
 
 ---
 

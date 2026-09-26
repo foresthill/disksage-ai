@@ -51,24 +51,6 @@ fn finding_if_over(
     }
 }
 
-/// Convenience for the common "a directory over a size threshold" pattern.
-/// If the directory is absent (e.g. a macOS path on Linux), it's simply skipped.
-#[allow(clippy::too_many_arguments)]
-fn dir_pattern(
-    f: &mut Vec<Finding>,
-    path: PathBuf,
-    threshold: u64,
-    id: &'static str,
-    severity: &'static str,
-    label: &str,
-    action: &str,
-) {
-    if path.is_dir() {
-        let size = dir_size(&path);
-        finding_if_over(f, path, size, threshold, id, severity, label, action);
-    }
-}
-
 /// iPhone backups (Apple's location + common third-party apps). A backup without
 /// Manifest.db cannot be restored — flagged high. macOS paths; skipped elsewhere.
 fn check_iphone_backup(f: &mut Vec<Finding>, home: &Path) {
@@ -216,34 +198,26 @@ pub fn collect() -> Vec<Finding> {
         None => return f,
     };
 
-    // --- Cross-platform ---------------------------------------------------
-    dir_pattern(
-        &mut f,
-        home.join(".ollama/models"),
-        10 * GIB,
-        "ollama_models",
-        "medium",
-        t("Ollama models", "Ollama モデル"),
-        t(
-            "Remove unused models with 'ollama rm <model>' (re-pullable anytime).",
-            "未使用モデルを 'ollama rm <model>' で削除（いつでも再取得可）。",
-        ),
-    );
-    dir_pattern(
-        &mut f,
-        home.join(".cache"),
-        5 * GIB,
-        "user_cache",
-        "safe",
-        t(
-            "~/.cache dev-tool caches",
-            "~/.cache 開発ツールのキャッシュ",
-        ),
-        t(
-            "Clear per tool (uv cache clean, etc.); ~/.cache is re-downloaded on demand.",
-            "各ツールで削除（uv cache clean 等）。~/.cache は必要時に再取得されます。",
-        ),
-    );
+    // --- Data-driven patterns (patterns/builtin.json + user extras) -------
+    // The simple "a directory over a size threshold" rules. Bespoke patterns
+    // (node_modules aggregate, Docker.raw, iPhone backup, snapshots, swap,
+    // Electron caches) stay as code below.
+    for pat in crate::patterns::all() {
+        if let Some(dir) = pat.first_existing_dir(&home) {
+            let size = dir_size(&dir);
+            if size > pat.threshold {
+                f.push(Finding {
+                    id: pat.id,
+                    path: tildify(&dir),
+                    size,
+                    severity: pat.severity,
+                    description: format!("{}: {}", pat.label(), human(size)),
+                    action: pat.action().to_string(),
+                });
+            }
+        }
+    }
+
     // node_modules is an aggregate walk rather than one directory.
     let dev = home.join("Development");
     if dev.is_dir() {
@@ -257,99 +231,6 @@ pub fn collect() -> Vec<Finding> {
             ),
         );
     }
-
-    // npm's global download cache — a pure download cache (projects' node_modules
-    // are untouched). The 15 GB blind spot earlier scans missed.
-    dir_pattern(
-        &mut f,
-        home.join(".npm/_cacache"),
-        5 * GIB,
-        "npm_cache",
-        "safe",
-        t(
-            "npm download cache (~/.npm/_cacache)",
-            "npm ダウンロードキャッシュ (~/.npm/_cacache)",
-        ),
-        t(
-            "Clear with 'npm cache clean --force'; it only re-downloads on the next install.",
-            "'npm cache clean --force' で削除（次回インストール時に再DLされるだけ）。",
-        ),
-    );
-    // pnpm's content-addressable store (shared across projects): prune unreferenced.
-    let pnpm = {
-        let mac = home.join("Library/pnpm/store");
-        if mac.is_dir() {
-            mac
-        } else {
-            home.join(".local/share/pnpm/store")
-        }
-    };
-    dir_pattern(
-        &mut f, pnpm, 5 * GIB, "pnpm_store", "safe",
-        t("pnpm content-addressable store", "pnpm コンテンツアドレスストア"),
-        t(
-            "Remove only unreferenced packages with 'pnpm store prune'; don't delete the whole (shared) store.",
-            "'pnpm store prune' で未参照パッケージのみ削除（共有ストア全体は削除しない）。",
-        ),
-    );
-
-    // --- macOS paths (absent on other OSes → naturally skipped) -----------
-    dir_pattern(
-        &mut f, home.join("Library/Caches"), 5 * GIB, "library_caches", "safe",
-        t("~/Library/Caches app caches", "~/Library/Caches アプリのキャッシュ"),
-        t(
-            "Quit the app, then clear its subfolder (or brew cleanup / yarn cache clean).",
-            "アプリを終了してから該当サブフォルダを削除（または brew cleanup / yarn cache clean）。",
-        ),
-    );
-    dir_pattern(
-        &mut f,
-        home.join("Library/Developer/Xcode/DerivedData"),
-        5 * GIB,
-        "xcode_derived_data",
-        "safe",
-        t("Xcode DerivedData", "Xcode DerivedData"),
-        t(
-            "Delete it; Xcode rebuilds on the next build.",
-            "削除可。次回ビルドで Xcode が再生成します。",
-        ),
-    );
-    dir_pattern(
-        &mut f,
-        home.join("Library/Developer/Xcode/iOS DeviceSupport"),
-        3 * GIB,
-        "ios_devicesupport",
-        "safe",
-        t("Xcode iOS DeviceSupport", "Xcode iOS DeviceSupport"),
-        t(
-            "Delete old versions; re-downloaded when you next connect that device.",
-            "古いバージョンを削除。次回そのデバイス接続時に再ダウンロードされます。",
-        ),
-    );
-    dir_pattern(
-        &mut f,
-        home.join("Library/Developer/CoreSimulator/Caches"),
-        GIB,
-        "coresimulator_caches",
-        "safe",
-        t("CoreSimulator caches", "CoreSimulator のキャッシュ"),
-        t(
-            "Safe to clear; regenerated by the simulator.",
-            "削除して安全。シミュレータが再生成します。",
-        ),
-    );
-    dir_pattern(
-        &mut f,
-        home.join("Library/Developer/CoreSimulator/Devices"),
-        5 * GIB,
-        "coresimulator_devices",
-        "medium",
-        t("CoreSimulator devices", "CoreSimulator のデバイス"),
-        t(
-            "Delete unused simulators in Xcode — deleting also wipes their installed apps and state.",
-            "未使用シミュレータを Xcode で削除。削除するとアプリ/状態も消えます。",
-        ),
-    );
 
     // Docker.raw — a single VM disk file that never auto-shrinks.
     let docker = home.join("Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw");

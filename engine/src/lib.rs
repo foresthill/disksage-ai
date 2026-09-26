@@ -17,6 +17,7 @@ pub mod flow;
 pub mod lang;
 pub mod mask;
 pub mod page;
+pub mod patterns;
 pub mod report;
 pub mod reports;
 pub mod scan;
