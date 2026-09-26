@@ -194,15 +194,11 @@ pub fn run(port: u16) -> Result<(), String> {
             let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
-        // Saving settings: write the language choice to the shared config file.
+        // Saving settings: language (→ config) or the AI key (→ OS keychain).
         if path == "/settings" && *req.method() == Method::Post {
             let mut body = String::new();
             let _ = req.as_reader().read_to_string(&mut body);
-            let val = settings::form_value(&body, "lang").unwrap_or("");
-            if matches!(val, "" | "ja" | "en") {
-                settings::write_lang(val);
-                lang::refresh(); // apply the new language to the next request
-            }
+            settings::handle_post(&body);
             let loc = Header::from_bytes(&b"Location"[..], &b"/settings?saved=1"[..]).expect("hdr");
             let _ = req.respond(Response::empty(303).with_header(loc));
             continue;

@@ -67,17 +67,26 @@ fn resolve_from(
     Err("no API key found — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY".into())
 }
 
+/// A BYOK key from the environment, falling back to the OS keychain.
+fn resolved_key(account: &str) -> Option<String> {
+    std::env::var(account)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| crate::secret::get(account))
+}
+
 /// Whether to route the analysis through the `claude` CLI instead of a BYOK HTTP
 /// call. Precedence: explicit DISKSAGE_AI_PROVIDER=claude-cli → yes; any other
-/// explicit provider → no; otherwise auto (no key set AND `claude` is installed).
+/// explicit provider → no; otherwise auto (no key in env/keychain AND `claude`
+/// is installed).
 fn use_claude_cli() -> bool {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     match env("DISKSAGE_AI_PROVIDER").as_deref() {
         Some("claude-cli") => true,
         Some(_) => false,
         None => {
-            env("ANTHROPIC_API_KEY").is_none()
-                && env("OPENROUTER_API_KEY").is_none()
+            resolved_key(crate::secret::ANTHROPIC).is_none()
+                && resolved_key(crate::secret::OPENROUTER).is_none()
                 && crate::claude_cli::available().is_some()
         }
     }
@@ -88,13 +97,13 @@ pub fn available() -> bool {
     use_claude_cli() || resolve_provider().is_ok()
 }
 
-/// Resolve the provider from the environment (BYOK).
+/// Resolve the provider from the environment or the OS keychain (BYOK).
 pub fn resolve_provider() -> Result<Provider, String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     resolve_from(
         &env("DISKSAGE_AI_PROVIDER").unwrap_or_default(),
-        env("ANTHROPIC_API_KEY"),
-        env("OPENROUTER_API_KEY"),
+        resolved_key(crate::secret::ANTHROPIC),
+        resolved_key(crate::secret::OPENROUTER),
         env("DISKSAGE_AI_BASE_URL"),
         env("DISKSAGE_MODEL"),
     )
