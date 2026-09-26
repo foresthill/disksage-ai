@@ -88,5 +88,35 @@
     "label_ja": "CoreSimulator のデバイス",
     "action_en": "Delete unused simulators in Xcode — deleting also wipes their installed apps and state.",
     "action_ja": "未使用シミュレータを Xcode で削除。削除するとアプリ/状態も消えます。"
+  },
+  {
+    "id": "photos_library",
+    "path": "~/Pictures/Photos Library.photoslibrary",
+    "threshold_gib": 10,
+    "severity": "info",
+    "label_en": "Photos library",
+    "label_ja": "写真ライブラリ",
+    "action_en": "Your photos and videos — irreplaceable. Do NOT delete. To free space, turn on iCloud Photos 'Optimize Mac Storage', or move the library to an external drive.",
+    "action_ja": "写真・動画＝二度と戻せません。削除しないでください。空けるなら iCloud 写真の「Macストレージを最適化」か、ライブラリを外付けへ移動を。"
+  },
+  {
+    "id": "apple_mail",
+    "path": "~/Library/Mail",
+    "threshold_gib": 5,
+    "severity": "low",
+    "label_en": "Apple Mail data",
+    "label_ja": "Apple Mail のデータ",
+    "action_en": "Mostly downloaded mail (IMAP accounts re-sync). Trim large attachments in Mail; review before deleting.",
+    "action_ja": "多くはダウンロード済みメール（IMAP は再同期）。Mail で大きな添付を整理。削除は内容確認のうえで。"
+  },
+  {
+    "id": "downloads_folder",
+    "path": "~/Downloads",
+    "threshold_gib": 5,
+    "severity": "low",
+    "label_en": "Downloads folder",
+    "label_ja": "ダウンロードフォルダ",
+    "action_en": "Review and remove old installers/files you no longer need (check for anything you still want first).",
+    "action_ja": "不要な古いインストーラ/ファイルを確認して削除（残したいものが無いか先に確認）。"
   }
 ]

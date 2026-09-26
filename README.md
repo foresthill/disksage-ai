@@ -263,6 +263,9 @@ Known patterns bundled in the initial release:
 | ~/.cache (aggregate) | Developer/tool caches — uv, huggingface, … (>5GB total) | 🟢 Safe |
 | npm cache | `~/.npm/_cacache` download cache (`npm cache clean --force`; >5GB) | 🟢 Safe |
 | pnpm store | Content-addressable store, shared across projects (`pnpm store prune`; >5GB) | 🟢 Safe |
+| Photos library | `~/Pictures/Photos Library.photoslibrary` — irreplaceable; awareness only | ℹ️ Info |
+| Apple Mail data | `~/Library/Mail` — mostly re-syncable IMAP mail | 🔵 Low |
+| Downloads folder | `~/Downloads` — old installers/files to review | 🔵 Low |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
 The simple size-threshold patterns are declarative JSON in [`patterns/builtin.json`](./patterns/) — add your own there (PR) or in `~/.disksage/patterns.json`, no rebuild needed. See [patterns/README.md](./patterns/README.md). Community contributions welcome.
