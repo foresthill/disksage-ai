@@ -15,11 +15,16 @@ fn ai_button(rerun: bool) -> String {
         "Sends masked metadata only (no file contents) to your configured provider or your local Claude Code.",
         "マスク済みメタデータのみ送信（ファイル内容は送りません）。設定済みプロバイダ、または端末の Claude Code を使用。",
     );
+    let preview = t(
+        "🔒 See exactly what would be sent",
+        "🔒 送信される内容を確認",
+    );
     format!(
         "<form method='post' action='/ai' style='margin-top:12px'>\
          <button type='submit' style='background:#8250df;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{label}</button>\
-         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div></form>"
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note} \
+         <a href='/ai-preview'>{preview}</a></div></form>"
     )
 }
 

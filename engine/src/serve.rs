@@ -256,6 +256,17 @@ pub fn run(port: u16) -> Result<(), String> {
             }
             continue;
         }
+        // Transparency: show exactly the masked metadata the AI would receive.
+        if path == "/ai-preview" {
+            let findings = {
+                let s = state.lock().unwrap();
+                s.findings.clone()
+            };
+            let body = crate::ai_preview::page_html(findings.as_deref());
+            let html = crate::page::shell("scan", t("Scan", "スキャン"), &body, false);
+            let _ = req.respond(Response::from_string(html).with_header(ctype()));
+            continue;
+        }
         let html = match path {
             "/" | "/index.html" => {
                 let (body, refresh) = scan_page(&state);
