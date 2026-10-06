@@ -9,7 +9,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::audit;
-use crate::mask;
 use crate::scan::Finding;
 
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -250,26 +249,21 @@ fn system_text(lang_ja: bool) -> String {
     system
 }
 
-/// The user turn: masked findings as metadata. Paths are masked here, so this
-/// never contains a raw user path (whether sent over HTTP or to the CLI).
+/// The user turn: masked findings as metadata. Built from `ai_preview::rows`,
+/// the single masking source — so what the /ai-preview page shows is exactly
+/// what is sent (paths and descriptions masked, never a raw user path).
 fn user_text(findings: &[Finding], host_os: &str) -> String {
-    let mut aliases = mask::Aliases::new();
-    let items: Vec<Value> = findings
+    let items: Vec<Value> = crate::ai_preview::rows(findings)
         .iter()
         .enumerate()
-        .map(|(i, f)| {
-            // Mask the path first (registers its alias), then reuse those aliases
-            // to scrub the description, so an app/user name anonymized in the path
-            // (Claude → <dir2>) can't leak back through the free-text description.
-            let path = mask::mask_path(&f.path, &mut aliases);
-            let description = mask::mask_text(&f.description, &aliases);
+        .map(|(i, r)| {
             json!({
                 "index": i,
-                "pattern_id": f.id,
-                "path": path,
-                "size_bytes": f.size,
-                "heuristic_severity": f.severity,
-                "description": description,
+                "pattern_id": r.pattern_id,
+                "path": r.masked_path,
+                "size_bytes": r.size,
+                "heuristic_severity": r.severity,
+                "description": r.masked_desc,
             })
         })
         .collect();
