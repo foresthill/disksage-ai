@@ -14,6 +14,24 @@ use disksage_engine::{ai, audit, lang, mask, scan, serve};
 /// then (only with --yes and a BYOK key) send it to Claude and print per-finding
 /// judgments. `--ai-log` (or DISKSAGE_AI_LOG=1) records the exact request,
 /// response and masking table under `$DISKSAGE_HOME/ai-logs/<stamp>/`.
+/// Write the "what would be sent" audit (request + masking table) without any
+/// network call — free, no API key — so masking can be verified offline.
+fn write_preview_audit(findings: &[scan::Finding]) {
+    match audit::start() {
+        Ok(a) => {
+            let prompt = ai::build_prompt(findings, lang::is_ja(), std::env::consts::OS);
+            let _ = a.write_request(&prompt);
+            let _ = a.write_masking(findings);
+            println!(
+                "\n📝 Preview audit written (no send): {}",
+                a.dir().display()
+            );
+            println!("   request.json = what would be sent · masking.tsv = real→masked paths");
+        }
+        Err(e) => eprintln!("DiskSage: could not write preview audit: {e}"),
+    }
+}
+
 fn cmd_ai(yes: bool, ai_log: bool) {
     lang::init();
     let findings = scan::collect();
@@ -21,18 +39,21 @@ fn cmd_ai(yes: bool, ai_log: bool) {
         println!("No findings to analyze.");
         return;
     }
-    // Privacy preview: exactly the metadata that would leave the machine.
+    // Privacy preview: exactly the metadata that would leave the machine —
+    // paths AND descriptions masked, so this is what the AI actually receives.
     println!("The following METADATA would be sent (file contents are NEVER sent):\n");
     let mut aliases = mask::Aliases::new();
     for (i, f) in findings.iter().enumerate() {
-        println!(
-            "  [{i}] {} {} — {}",
-            f.severity,
-            mask::mask_path(&f.path, &mut aliases),
-            f.description
-        );
+        let path = mask::mask_path(&f.path, &mut aliases);
+        let desc = mask::mask_text(&f.description, &aliases);
+        println!("  [{i}] {} {} — {}", f.severity, path, desc);
     }
     if !yes {
+        // With --ai-log, write the audit (request + masking) WITHOUT sending —
+        // free, no key — so masking can be confirmed offline.
+        if audit::enabled(ai_log) {
+            write_preview_audit(&findings);
+        }
         println!("\nRe-run with --yes to send this to the AI for judgment (BYOK).");
         return;
     }

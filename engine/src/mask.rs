@@ -99,9 +99,60 @@ pub fn mask_path(path: &str, aliases: &mut Aliases) -> String {
         .join("/")
 }
 
+/// Mask free text (e.g. a finding's description) using the SAME aliases already
+/// built from the paths, so a user/app name that was anonymized in the path
+/// (e.g. `Claude` → `<dir2>`) is also replaced wherever it appears in the text.
+/// Case-insensitive; alias keys are ASCII-ish component names so byte indices
+/// line up with the lowercased copy.
+pub fn mask_text(text: &str, aliases: &Aliases) -> String {
+    let mut out = text.to_string();
+    for (real_lc, token) in aliases {
+        out = replace_ci(&out, real_lc, token);
+    }
+    out
+}
+
+fn replace_ci(haystack: &str, needle_lc: &str, replacement: &str) -> String {
+    if needle_lc.is_empty() {
+        return haystack.to_string();
+    }
+    let hay_lc = haystack.to_lowercase();
+    // If lowercasing changed the byte length, indices would misalign — fall back
+    // to a conservative exact-case replace rather than risk corrupting the text.
+    if hay_lc.len() != haystack.len() {
+        return haystack.replace(needle_lc, replacement);
+    }
+    let mut result = String::with_capacity(haystack.len());
+    let mut last = 0;
+    while let Some(rel) = hay_lc[last..].find(needle_lc) {
+        let abs = last + rel;
+        result.push_str(&haystack[last..abs]);
+        result.push_str(replacement);
+        last = abs + needle_lc.len();
+    }
+    result.push_str(&haystack[last..]);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mask_text_scrubs_names_from_descriptions() {
+        let mut a = Aliases::new();
+        // Masking the path registers Claude → <dir1>.
+        assert_eq!(
+            mask_path("~/Library/Application Support/Claude", &mut a),
+            "~/Library/Application Support/<dir1>"
+        );
+        // The same alias scrubs the app name out of the description (any case).
+        assert_eq!(
+            mask_text("Claude の Electron キャッシュ: 1.0 GB", &a),
+            "<dir1> の Electron キャッシュ: 1.0 GB"
+        );
+        assert!(!mask_text("claude cache", &a).contains("claude"));
+    }
 
     #[test]
     fn keeps_known_components() {

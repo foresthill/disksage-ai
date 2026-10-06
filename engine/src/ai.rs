@@ -258,13 +258,18 @@ fn user_text(findings: &[Finding], host_os: &str) -> String {
         .iter()
         .enumerate()
         .map(|(i, f)| {
+            // Mask the path first (registers its alias), then reuse those aliases
+            // to scrub the description, so an app/user name anonymized in the path
+            // (Claude → <dir2>) can't leak back through the free-text description.
+            let path = mask::mask_path(&f.path, &mut aliases);
+            let description = mask::mask_text(&f.description, &aliases);
             json!({
                 "index": i,
                 "pattern_id": f.id,
-                "path": mask::mask_path(&f.path, &mut aliases),
+                "path": path,
                 "size_bytes": f.size,
                 "heuristic_severity": f.severity,
-                "description": f.description,
+                "description": description,
             })
         })
         .collect();
