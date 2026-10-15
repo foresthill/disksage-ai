@@ -118,5 +118,15 @@
     "label_ja": "ダウンロードフォルダ",
     "action_en": "Review and remove old installers/files you no longer need (check for anything you still want first).",
     "action_ja": "不要な古いインストーラ/ファイルを確認して削除（残したいものが無いか先に確認）。"
+  },
+  {
+    "id": "claude_vm",
+    "path": "~/Library/Application Support/Claude/vm_bundles",
+    "threshold_gib": 5,
+    "severity": "info",
+    "label_en": "Claude Code / Desktop workspace VM",
+    "label_ja": "Claude Code / Desktop のワークスペース VM",
+    "action_en": "The Claude desktop app's workspace VM (rootfs + session data). Managed by Claude — reclaim it from Claude's Settings → Storage, don't delete these files by hand (that resets your workspaces).",
+    "action_ja": "Claude デスクトップのワークスペース VM（rootfs＋セッションデータ）。Claude が管理。整理は Claude の 設定 → ストレージ から。手でファイルを消すとワークスペースが初期化されます。"
   }
 ]
