@@ -266,6 +266,7 @@ Known patterns bundled in the initial release:
 | Photos library | `~/Pictures/Photos Library.photoslibrary` — irreplaceable; awareness only | ℹ️ Info |
 | Apple Mail data | `~/Library/Mail` — mostly re-syncable IMAP mail | 🔵 Low |
 | Downloads folder | `~/Downloads` — old installers/files to review | 🔵 Low |
+| Claude workspace VM | `~/Library/Application Support/Claude/vm_bundles` — AI tool runtime; manage via Claude's Storage | ℹ️ Info |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
 The simple size-threshold patterns are declarative JSON in [`patterns/builtin.json`](./patterns/) — add your own there (PR) or in `~/.disksage/patterns.json`, no rebuild needed. See [patterns/README.md](./patterns/README.md). Community contributions welcome.
