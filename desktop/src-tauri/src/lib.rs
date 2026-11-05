@@ -130,6 +130,10 @@ pub fn run() {
             if let Err(e) = setup_tray(app) {
                 eprintln!("DiskSage: could not create the menu bar tray: {e}");
             }
+            // Tell the engine which released version is running, so its (opt-out)
+            // update check can compare against the newest GitHub release. Only the
+            // packaged app knows this; the dev CLI leaves it unset and skips the check.
+            std::env::set_var("DISKSAGE_VERSION", env!("CARGO_PKG_VERSION"));
             // Serve the UI in-process; the thread lives for the life of the app.
             // A bind failure (e.g. the port is already taken by another DiskSage)
             // is logged, not fatal — the window then talks to whatever's on 8765.

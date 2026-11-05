@@ -17,11 +17,13 @@ fn config_path() -> PathBuf {
     home.join("config")
 }
 
-/// Current `lang=` value ("" if unset → auto-detect).
-pub fn read_lang() -> String {
+/// Value of a `key=` line in the config ("" if unset), from the shared
+/// `$DISKSAGE_HOME/config` the bash CLI, bash serve and engine all read.
+pub fn read_key(key: &str) -> String {
+    let prefix = format!("{key}=");
     if let Ok(txt) = fs::read_to_string(config_path()) {
         for line in txt.lines() {
-            if let Some(v) = line.strip_prefix("lang=") {
+            if let Some(v) = line.strip_prefix(&prefix) {
                 return v.trim().to_string();
             }
         }
@@ -29,19 +31,20 @@ pub fn read_lang() -> String {
     String::new()
 }
 
-/// Replace (or, for an empty value, remove) the `lang=` line, preserving others.
-pub fn write_lang(val: &str) {
+/// Replace (or, for an empty value, remove) the `key=` line, preserving others.
+pub fn write_key(key: &str, val: &str) {
     let path = config_path();
+    let prefix = format!("{key}=");
     let mut lines: Vec<String> = Vec::new();
     if let Ok(txt) = fs::read_to_string(&path) {
         for line in txt.lines() {
-            if !line.starts_with("lang=") {
+            if !line.starts_with(&prefix) {
                 lines.push(line.to_string());
             }
         }
     }
     if !val.is_empty() {
-        lines.push(format!("lang={val}"));
+        lines.push(format!("{key}={val}"));
     }
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
@@ -51,6 +54,16 @@ pub fn write_lang(val: &str) {
         out.push('\n');
     }
     let _ = fs::write(&path, out);
+}
+
+/// Current `lang=` value ("" if unset → auto-detect).
+pub fn read_lang() -> String {
+    read_key("lang")
+}
+
+/// Replace (or, for an empty value, remove) the `lang=` line, preserving others.
+pub fn write_lang(val: &str) {
+    write_key("lang", val);
 }
 
 /// Value of a key in an `application/x-www-form-urlencoded` body.
@@ -75,6 +88,13 @@ pub fn handle_post(body: &str) {
             write_lang(val);
             crate::lang::refresh();
         }
+        return;
+    }
+    // Update-check form (a checkbox: present only when ticked; default on, so
+    // we store `off` only when it comes back unchecked).
+    if form_value(body, "update_action") == Some("set") {
+        let on = form_value(body, "update_check").is_some();
+        write_key("update_check", if on { "" } else { "off" });
         return;
     }
     // AI-key form.
@@ -161,6 +181,35 @@ fn ai_section() -> String {
     )
 }
 
+/// The update-check section: a single checkbox (default on). Explains that it
+/// only reads the public GitHub Releases page and never auto-downloads.
+fn update_section() -> String {
+    let on = read_key("update_check") != "off";
+    let checked = if on { "checked" } else { "" };
+    format!(
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
+         <form method='post' action='/settings'>\
+         <input type='hidden' name='update_action' value='set'>\
+         <label style='font-size:14px'>\
+         <input type='checkbox' name='update_check' {checked}> {lbl}</label> \
+         <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
+         padding:7px 14px;font-size:13px;cursor:pointer;margin-left:8px'>{save}</button></form>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>",
+        h = t("Update check", "アップデート確認"),
+        lbl = t(
+            "Check GitHub for a newer version on launch",
+            "起動時に新しいバージョンを GitHub で確認する"
+        ),
+        save = t("Save", "保存"),
+        note = t(
+            "Reads only the public Releases page — nothing about you or your files is sent, \
+             and nothing is downloaded or installed automatically. It just shows a link.",
+            "公開の Releases ページを見るだけです。あなたやファイルの情報は一切送信せず、\
+             自動ダウンロード／インストールもしません。リンクを表示するだけです。"
+        ),
+    )
+}
+
 /// The `/settings` page body (sits inside the served shell).
 pub fn settings_html(saved: bool) -> String {
     let cur = read_lang();
@@ -192,7 +241,7 @@ pub fn settings_html(saved: bool) -> String {
          <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{note}</div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{save}</button></form>\
-         {ai}\
+         {ai}{update}\
          <h3 style='font-size:15px;margin:24px 0 6px'>{about}</h3>\
          <div style='color:#57606a;font-size:13px;line-height:1.7'>{data_l} <code>{}</code><br>{never}</div>",
         opt("", t("Auto (system)", "自動（システム）")),
@@ -200,6 +249,7 @@ pub fn settings_html(saved: bool) -> String {
         opt("en", "English"),
         esc(&data_dir),
         ai = ai_section(),
+        update = update_section(),
         title = t("⚙️ Settings", "⚙️ 設定"),
         lang_h = t("Report language", "レポートの言語"),
         note = t(

@@ -50,6 +50,26 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
     )
 }
 
+/// A "new version available" banner, shown at the top of the Scan page when the
+/// update check found a newer release. Links to the Releases page — no download.
+pub fn update_banner(tag: &str, url: &str) -> String {
+    let tag = esc(tag);
+    let url = esc(url);
+    let (msg, link) = if is_ja() {
+        (
+            format!("⬆️ 新しいバージョン {tag} が公開されています。"),
+            "ダウンロード",
+        )
+    } else {
+        (format!("⬆️ A new version {tag} is available."), "Download")
+    };
+    format!(
+        "<div style='margin:0 0 16px;padding:12px 14px;background:#ddf4ff;border:1px solid #54aeff;\
+         border-radius:8px;font-size:14px'>{msg} \
+         <a href='{url}' target='_blank' rel='noopener' style='font-weight:600'>{link} →</a></div>"
+    )
+}
+
 /// The disk-usage overview: one bar per APFS container + a snapshot warning.
 pub fn overview_html() -> String {
     let heading = t(

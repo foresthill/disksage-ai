@@ -31,6 +31,9 @@ struct ScanState {
     ai_running: bool,
     deep: Option<crate::deep::DeepScan>,
     deep_running: bool,
+    /// A newer release found by the background update check (None = up to date,
+    /// check disabled, offline, or app version unknown).
+    update: Option<crate::update::Latest>,
 }
 type State = Arc<Mutex<ScanState>>;
 
@@ -54,7 +57,13 @@ fn trigger_scan(state: State) {
 /// The Scan page: overview (instant) + findings (or a scanning banner). Returns
 /// the body and whether the page should auto-refresh (while a scan is running).
 fn scan_page(state: &State) -> (String, bool) {
-    let mut body = crate::page::overview_html();
+    let mut body = String::new();
+    // Prepend the "new version" banner if the background check found one. Taken
+    // in its own lock scope so we don't hold the lock across the page build.
+    if let Some(u) = &state.lock().unwrap().update {
+        body.push_str(&crate::page::update_banner(&u.tag, &u.url));
+    }
+    body.push_str(&crate::page::overview_html());
     body.push_str(t(
         "<h2 style='font-size:16px;margin:22px 0 8px'>🎯 Findings</h2>",
         "<h2 style='font-size:16px;margin:22px 0 8px'>🎯 検出結果</h2>",
@@ -94,6 +103,16 @@ pub fn run(port: u16) -> Result<(), String> {
     lang::init();
     let state: State = Arc::new(Mutex::new(ScanState::default()));
     trigger_scan(state.clone());
+    // Signature-free update check, off the request path: if a newer release
+    // exists, the Scan page shows a link. Best-effort and opt-out (see update.rs).
+    {
+        let st = state.clone();
+        thread::spawn(move || {
+            if let Some(latest) = crate::update::check() {
+                st.lock().unwrap().update = Some(latest);
+            }
+        });
+    }
     eprintln!("DiskSage engine serving on http://127.0.0.1:{port}  (Ctrl-C to stop)");
     let ctype =
         || Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr");
