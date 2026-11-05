@@ -97,6 +97,12 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing (Plan B). The private key + its password live only in
+          # repo secrets; with createUpdaterArtifacts=true, tauri-action signs the
+          # bundles and generates/uploads latest.json to the release. An empty
+          # secret means an unsigned build — the updater is simply inert then.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: ./desktop
           # Upload to the release created above (empty on dispatch → build only).

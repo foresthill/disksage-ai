@@ -19,6 +19,8 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_updater::UpdaterExt;
 
 const TRAY_ID: &str = "disksage-tray";
 const REFRESH: Duration = Duration::from_secs(30);
@@ -43,6 +45,70 @@ fn show_main(app: &tauri::AppHandle) {
     }
 }
 
+/// Check GitHub for a newer release and, if the user agrees, download + install
+/// it, then restart. Driven from the tray because the served UI runs on a
+/// different origin (127.0.0.1:8765) and can't call Tauri's updater API.
+///
+/// `interactive` controls the no-update / error dialogs: on by default from the
+/// tray, so the user gets feedback either way. The update's authenticity is
+/// verified by the updater's own signature (the `pubkey` in tauri.conf.json),
+/// which is separate from Apple/OS code signing.
+async fn check_update(app: tauri::AppHandle, interactive: bool) {
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            if interactive {
+                app.dialog()
+                    .message(format!("Could not start the update check:\n{e}"))
+                    .title("DiskSage")
+                    .blocking_show();
+            }
+            return;
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            let version = update.version.clone();
+            let proceed = app
+                .dialog()
+                .message(format!(
+                    "A new version ({version}) is available.\n\n\
+                     Download and install it now? DiskSage will restart."
+                ))
+                .title("DiskSage — Update available")
+                .buttons(MessageDialogButtons::OkCancel)
+                .blocking_show();
+            if proceed {
+                match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => app.restart(),
+                    Err(e) => {
+                        app.dialog()
+                            .message(format!("The update could not be installed:\n{e}"))
+                            .title("DiskSage")
+                            .blocking_show();
+                    }
+                }
+            }
+        }
+        Ok(None) => {
+            if interactive {
+                app.dialog()
+                    .message("You're on the latest version.")
+                    .title("DiskSage")
+                    .blocking_show();
+            }
+        }
+        Err(e) => {
+            if interactive {
+                app.dialog()
+                    .message(format!("Update check failed:\n{e}"))
+                    .title("DiskSage")
+                    .blocking_show();
+            }
+        }
+    }
+}
+
 /// Build the menu bar tray: free-space title + a small menu
 /// (Open / Start at Login / Quit).
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -57,8 +123,15 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         autostart_on,
         None::<&str>,
     )?;
+    let check_i = MenuItem::with_id(
+        app,
+        "check_update",
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
     let quit_i = PredefinedMenuItem::quit(app, Some("Quit DiskSage"))?;
-    let menu = Menu::with_items(app, &[&open_i, &login_i, &quit_i])?;
+    let menu = Menu::with_items(app, &[&open_i, &check_i, &login_i, &quit_i])?;
 
     // The toggle updates its own checkmark only when the (un)register succeeds.
     let login_for_cb = login_i.clone();
@@ -69,6 +142,10 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_main(app),
+            "check_update" => {
+                let handle = app.clone();
+                tauri::async_runtime::spawn(check_update(handle, true));
+            }
             "start_at_login" => {
                 let mgr = app.autolaunch();
                 let currently_on = mgr.is_enabled().unwrap_or(false);
@@ -108,6 +185,9 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // In-app auto-update (tray-driven) + the dialogs it prompts with.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         // Start-at-login support; the login item is named "DiskSage", not "desktop".
         .plugin(
             tauri_plugin_autostart::Builder::new()
