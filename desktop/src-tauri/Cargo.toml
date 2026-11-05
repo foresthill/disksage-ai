@@ -22,6 +22,13 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 # Start-at-login toggle for the menu-bar-resident app (opt-in via the tray menu).
 tauri-plugin-autostart = "2"
+# In-app auto-update: check GitHub for a newer release, download and install it.
+# Desktop-only (no mobile targets here). The update's own signature is verified
+# with the updater key (separate from Apple/OS code signing).
+tauri-plugin-updater = "2"
+# Native confirm/alert dialogs for the "update available / up to date" prompts
+# driven from the tray (the served UI is cross-origin and can't call Tauri APIs).
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The DiskSage engine, called in-process for disk stats (no subprocess). Sharing
