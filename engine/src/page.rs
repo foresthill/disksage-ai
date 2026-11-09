@@ -58,7 +58,12 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
          border-radius:12px;padding:28px 32px'>{body}</div>\
          <div id='ds-busy' class='dsov'><div class='dssp'></div></div>\
          <script>addEventListener('pageshow',function(){{var o=document.getElementById('ds-busy');\
-         if(o)o.style.display='none'}});</script></body></html>",
+         if(o)o.style.display='none'}});\
+         document.addEventListener('click',function(e){{var a=e.target.closest('.dsrev');\
+         if(a){{e.preventDefault();fetch('/reveal',{{method:'POST',\
+         headers:{{'Content-Type':'application/x-www-form-urlencoded'}},\
+         body:'path='+encodeURIComponent(a.getAttribute('data-path'))}});}}}});</script>\
+         </body></html>",
         lang = t("en", "ja"),
         sidebar = sidebar(active),
     )
