@@ -203,9 +203,17 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // macOS: menu-bar-only — no Dock icon, no app-switcher entry.
+            // macOS: show a Dock icon (so the app icon is visible there) plus a
+            // standard menu bar (About / Hide / Quit, Edit, Window…). The app is
+            // still menu-bar-resident — closing the window hides it (see below)
+            // and a Dock-icon click re-shows it (RunEvent::Reopen in `run`).
             #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            {
+                app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                if let Ok(menu) = Menu::default(app.handle()) {
+                    let _ = app.set_menu(menu);
+                }
+            }
 
             if let Err(e) = setup_tray(app) {
                 eprintln!("DiskSage: could not create the menu bar tray: {e}");
@@ -226,5 +234,15 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building the DiskSage application")
-        .run(|_app, _event| {});
+        .run(|_app, _event| {
+            // macOS: re-show the main window when the Dock icon is clicked while
+            // no window is visible (closing hides the window to the tray/Dock).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                if let Some(w) = _app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        });
 }
