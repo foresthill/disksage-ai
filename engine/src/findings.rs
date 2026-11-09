@@ -42,6 +42,19 @@ fn rec_color(r: &str) -> &'static str {
     }
 }
 
+/// The finding's path as a row that reveals it in the file manager on click.
+/// The click is handled by a delegated listener in the page shell (it reads
+/// `data-path` and POSTs to `/reveal`), so no path is interpolated into JS here.
+fn path_cell(path: &str) -> String {
+    let title = t("Reveal in Finder", "Finder で開く");
+    format!(
+        "<div style='margin-top:4px'><a href='#' class='dsrev' data-path='{p}' title='{title}' \
+         style='color:#57606a;font-size:12px;text-decoration:none;cursor:pointer;\
+         border-bottom:1px dotted #afb8c1'>📂 {p}</a></div>",
+        p = esc(path),
+    )
+}
+
 /// The AI badge for one finding, if a judgment exists for it.
 fn ai_badge(judgment: Option<&Judgment>) -> String {
     match judgment {
@@ -113,11 +126,11 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
              <div>{checkbox}<span style='background:{c};color:#fff;font-size:11px;padding:2px 8px;\
              border-radius:10px'>{}</span></div>\
              <div style='margin-top:6px'>{}</div>\
-             <div style='color:#57606a;font-size:12px;margin-top:4px'>{}</div>\
+             {}\
              <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}{}</div>",
             esc(&f.severity.to_uppercase()),
             esc(&f.description),
-            esc(&f.path),
+            path_cell(&f.path),
             esc(&f.action),
             drill,
             ai_badge(ai_by_index.get(&idx).copied()),
