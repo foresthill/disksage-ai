@@ -1,0 +1,35 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#15655D"/>
+      <stop offset="0.55" stop-color="#0D423F"/>
+      <stop offset="1" stop-color="#07292D"/>
+    </linearGradient>
+    <linearGradient id="sage" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#B6F0C6"/>
+      <stop offset="1" stop-color="#2FC79A"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C6F4D8"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.5" cy="0.12" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="112" y="112" width="800" height="800" rx="184" fill="#02141A" opacity="0.38"/>
+  <rect x="112" y="96" width="800" height="800" rx="184" fill="url(#bg)"/>
+  <rect x="112" y="96" width="800" height="800" rx="184" fill="url(#gloss)"/>
+
+  <circle cx="512" cy="500" r="250" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="72"/>
+  <path d="M 512 250 A 250 250 0 0 1 728.5 625" fill="none" stroke="url(#sage)" stroke-width="72" stroke-linecap="round"/>
+
+  <path d="M 512 384
+           C 525 455, 553 483, 624 496
+           C 553 509, 525 537, 512 608
+           C 499 537, 471 509, 400 496
+           C 471 483, 499 455, 512 384 Z"
+        fill="url(#spark)"/>
+</svg>
