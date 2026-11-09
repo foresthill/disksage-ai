@@ -74,22 +74,22 @@ fn container_for(kind: Kind) -> Option<PathBuf> {
     }
 }
 
-/// Direct sub-directories of `dir` as items (used by the cache-style kinds).
-fn list_subdirs(dir: &Path, out: &mut Vec<Item>) {
+/// Direct sub-directories of `dir` (used by the cache-style kinds). Discovery
+/// only — sizing is done afterwards, in parallel.
+fn list_subdirs(dir: &Path, out: &mut Vec<PathBuf>) {
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
             let path = e.path();
             if path.is_dir() {
-                out.push(Item {
-                    size: dir_size(&path),
-                    path,
-                });
+                out.push(path);
             }
         }
     }
 }
 
-fn collect_node_modules(dir: &Path, out: &mut Vec<Item>) {
+/// Find every `node_modules` dir under `dir` (not recursing into one, to avoid
+/// double-counting nested copies). Discovery only — sizing comes later.
+fn collect_node_modules(dir: &Path, out: &mut Vec<PathBuf>) {
     let rd = match std::fs::read_dir(dir) {
         Ok(r) => r,
         Err(_) => return,
@@ -106,31 +106,74 @@ fn collect_node_modules(dir: &Path, out: &mut Vec<Item>) {
         let name = e.file_name();
         let name = name.to_string_lossy();
         if name == "node_modules" {
-            out.push(Item {
-                size: dir_size(&path),
-                path,
-            }); // don't recurse into it (avoids double-counting nested copies)
+            out.push(path); // don't recurse into it
         } else if name != ".git" {
             collect_node_modules(&path, out);
         }
     }
 }
 
+/// Size each discovered path concurrently — the `du`-style walk per item is the
+/// slow part (a big ~/Development took ~10s serially), so fan it out across a
+/// bounded set of threads. Mirrors the parallel `du` used by the `top` view.
+fn sizes_parallel(paths: Vec<PathBuf>) -> Vec<Item> {
+    if paths.len() < 2 {
+        return paths
+            .into_iter()
+            .map(|p| Item {
+                size: dir_size(&p),
+                path: p,
+            })
+            .collect();
+    }
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 8)
+        .min(paths.len());
+    let mut chunks: Vec<Vec<PathBuf>> = (0..workers).map(|_| Vec::new()).collect();
+    for (i, p) in paths.into_iter().enumerate() {
+        chunks[i % workers].push(p);
+    }
+    let handles: Vec<_> = chunks
+        .into_iter()
+        .map(|chunk| {
+            std::thread::spawn(move || {
+                chunk
+                    .into_iter()
+                    .map(|p| Item {
+                        size: dir_size(&p),
+                        path: p,
+                    })
+                    .collect::<Vec<Item>>()
+            })
+        })
+        .collect();
+    let mut out = Vec::new();
+    for h in handles {
+        if let Ok(mut v) = h.join() {
+            out.append(&mut v);
+        }
+    }
+    out
+}
+
 /// The sub-items for a kind, largest first (capped so the page stays reasonable).
 pub fn items(kind: Kind) -> Vec<Item> {
-    let mut out = Vec::new();
+    let mut paths = Vec::new();
     match kind {
         Kind::NodeModules => {
             if let Some(dev) = development_dir() {
-                collect_node_modules(&dev, &mut out);
+                collect_node_modules(&dev, &mut paths);
             }
         }
         Kind::LibraryCaches | Kind::UserCache => {
             if let Some(dir) = container_for(kind) {
-                list_subdirs(&dir, &mut out);
+                list_subdirs(&dir, &mut paths);
             }
         }
     }
+    let mut out = sizes_parallel(paths);
     out.sort_by_key(|i| std::cmp::Reverse(i.size));
     out.truncate(100);
     out

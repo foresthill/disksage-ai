@@ -99,9 +99,10 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         // delete whole, but can be drilled into to pick sub-items.
         let drill = match crate::breakdown::Kind::for_finding(f.id) {
             Some(k) => format!(
-                "<div style='margin-top:6px'><a href='/breakdown?kind={}' \
+                "<div style='margin-top:6px'><a href='/breakdown?kind={}' onclick='{}' \
                  style='font-size:13px'>{}</a></div>",
                 k.as_str(),
+                crate::page::SHOW_SPINNER,
                 t("🔍 Pick items to delete →", "🔍 内訳を見て選ぶ →"),
             ),
             None => String::new(),

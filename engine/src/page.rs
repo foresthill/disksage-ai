@@ -5,6 +5,12 @@ use crate::df;
 use crate::lang::{is_ja, t};
 use crate::util::{esc, human};
 
+/// Inline `onclick` that reveals the full-page loading spinner (markup + CSS live
+/// in `shell`). Put it on a link whose navigation triggers slow server-side work
+/// (e.g. the breakdown walk) so the click gives instant feedback instead of a
+/// dead ~10s wait. The spinner auto-hides when the next page paints (`pageshow`).
+pub const SHOW_SPINNER: &str = "document.getElementById('ds-busy').style.display='flex'";
+
 /// The left sidebar nav. `active` is the current section key (scan/reports/settings).
 fn sidebar(active: &str) -> String {
     let item = |href: &str, icon: &str, label: &str, key: &str| {
@@ -40,11 +46,19 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
         "<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>{meta}\
          <meta name='viewport' content='width=device-width, initial-scale=1'>\
          <title>DiskSage — {title}</title>\
-         <style>body{{padding-left:200px}}@media(max-width:640px){{body{{padding-left:0}}}}</style></head>\
+         <style>body{{padding-left:200px}}@media(max-width:640px){{body{{padding-left:0}}}}\
+         .dsov{{position:fixed;inset:0;background:rgba(246,248,250,.72);display:none;\
+         align-items:center;justify-content:center;z-index:50}}\
+         .dssp{{width:40px;height:40px;border:4px solid #d0d7de;border-top-color:#1a7f37;\
+         border-radius:50%;animation:dsspin .8s linear infinite}}\
+         @keyframes dsspin{{to{{transform:rotate(360deg)}}}}</style></head>\
          <body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;\
          margin:0;background:#f6f8fa;color:#1f2328'>{sidebar}\
          <div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;\
-         border-radius:12px;padding:28px 32px'>{body}</div></body></html>",
+         border-radius:12px;padding:28px 32px'>{body}</div>\
+         <div id='ds-busy' class='dsov'><div class='dssp'></div></div>\
+         <script>addEventListener('pageshow',function(){{var o=document.getElementById('ds-busy');\
+         if(o)o.style.display='none'}});</script></body></html>",
         lang = t("en", "ja"),
         sidebar = sidebar(active),
     )
