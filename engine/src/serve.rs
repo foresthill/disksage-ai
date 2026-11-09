@@ -213,6 +213,35 @@ pub fn run(port: u16) -> Result<(), String> {
             let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
+        // Reveal a finding's path in the file manager. Read-only (opens a window),
+        // but still validated: only a path the server is *currently* showing as a
+        // finding is honoured, never an arbitrary path from the client.
+        if path == "/reveal" && *req.method() == Method::Post {
+            let mut body = String::new();
+            let _ = req.as_reader().read_to_string(&mut body);
+            let requested = body.split('&').find_map(|kv| {
+                let (k, v) = kv.split_once('=')?;
+                (k == "path").then(|| percent_decode(v))
+            });
+            let known: bool = requested
+                .as_ref()
+                .map(|p| {
+                    let s = state.lock().unwrap();
+                    s.findings
+                        .as_ref()
+                        .map(|fs| fs.iter().any(|f| &f.path == p))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            let code = if known {
+                let _ = crate::reveal::reveal(&trash::expand_tilde(&requested.unwrap()));
+                204
+            } else {
+                403
+            };
+            let _ = req.respond(Response::empty(code));
+            continue;
+        }
         // Saving settings: language (→ config) or the AI key (→ OS keychain).
         if path == "/settings" && *req.method() == Method::Post {
             let mut body = String::new();

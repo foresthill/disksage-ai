@@ -21,6 +21,7 @@ pub mod page;
 pub mod patterns;
 pub mod report;
 pub mod reports;
+pub mod reveal;
 pub mod scan;
 pub mod secret;
 pub mod serve;
