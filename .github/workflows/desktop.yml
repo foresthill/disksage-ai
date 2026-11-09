@@ -103,6 +103,21 @@ jobs:
           # secret means an unsigned build — the updater is simply inert then.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization (Track A). Ignored on Linux/Windows.
+          # tauri-action enables signing when APPLE_CERTIFICATE is present, and
+          # notarizes with the Apple-ID credentials below. All empty → unsigned
+          # build (same as before), so this is safe to wire ahead of the secrets.
+          #   APPLE_CERTIFICATE          base64 of the Developer ID Application .p12
+          #   APPLE_CERTIFICATE_PASSWORD the .p12 export password
+          #   APPLE_SIGNING_IDENTITY     e.g. "Developer ID Application: Name (TEAMID)"
+          #   APPLE_ID / APPLE_PASSWORD  Apple ID + app-specific password (notarize)
+          #   APPLE_TEAM_ID              the 10-char Team ID
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: ./desktop
           # Upload to the release created above (empty on dispatch → build only).
