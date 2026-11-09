@@ -30,11 +30,11 @@ const SERVE_PORT: u16 = 8765;
 /// Menu bar title: the startup disk's free space, computed in-process by the
 /// DiskSage engine (no subprocess, no protected-folder access → no permission
 /// dialogs). Same code path as the CLI, so the numbers always agree.
+///
+/// Just the number — the tray already shows the DiskSage app icon beside it, so
+/// the old 💾 glyph was redundant (and a real icon reads better than an emoji).
 fn free_title() -> String {
-    format!(
-        "💾 {}",
-        disksage_engine::util::human(disksage_engine::df::startup_free())
-    )
+    disksage_engine::util::human(disksage_engine::df::startup_free())
 }
 
 /// Show and focus the main window (used from the tray "Open" item).
