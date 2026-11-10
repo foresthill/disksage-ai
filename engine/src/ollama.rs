@@ -51,13 +51,23 @@ fn friendly_err(e: ureq::Error) -> String {
     }
 }
 
-/// `GET /api/tags` → installed model names. Short timeout so the Settings page
-/// stays responsive when Ollama isn't running (a localhost refusal is instant;
-/// a wrong remote host is capped at the timeout).
+/// `GET /api/tags` for the configured base URL → installed model names.
 pub fn list_models() -> Result<Vec<String>, String> {
-    let url = format!("{}/api/tags", base_url());
+    list_models_at(&base_url())
+}
+
+/// `GET /api/tags` for an explicit base URL → installed model names. This is what
+/// the Settings "test & fetch" button uses: it probes the URL the user is *typing*
+/// (not the saved one), so you can point at a new server before committing it. The
+/// URL is normalized the same way `base_url()` normalizes (trim, drop trailing `/`,
+/// empty → default). Timeout is modest so a wrong host fails fast, but roomy
+/// enough for an SSH port-forward to a remote Ollama.
+pub fn list_models_at(base: &str) -> Result<Vec<String>, String> {
+    let base = base.trim().trim_end_matches('/');
+    let base = if base.is_empty() { DEFAULT_URL } else { base };
+    let url = format!("{base}/api/tags");
     let text = ureq::get(&url)
-        .timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(5))
         .call()
         .map_err(friendly_err)?
         .into_string()

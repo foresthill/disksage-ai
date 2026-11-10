@@ -231,10 +231,38 @@ fn provider_section() -> String {
     )
 }
 
+/// Build the model `<select>` options: a blank choice + each installed model,
+/// keeping the saved model selected (and present even if the live list lacks it).
+fn model_options(models: &[String], cur: &str) -> String {
+    let mut opts = format!(
+        "<option value=''>{}</option>",
+        t("— choose a model —", "— モデルを選択 —")
+    );
+    let mut saw_cur = cur.is_empty();
+    for m in models {
+        let sel = if m == cur {
+            saw_cur = true;
+            "selected"
+        } else {
+            ""
+        };
+        opts.push_str(&format!("<option value='{0}' {sel}>{0}</option>", esc(m)));
+    }
+    if !saw_cur {
+        opts.push_str(&format!(
+            "<option value='{0}' selected>{0}</option>",
+            esc(cur)
+        ));
+    }
+    opts
+}
+
 /// The Ollama connection section: a configurable base URL (port-forward friendly)
-/// and a model picker. On render it probes `GET /api/tags` (fast; a localhost
-/// refusal is instant) to show a live connection status and populate the model
-/// list — so "Save & test" doubles as the connection test.
+/// and a model picker. The **"Test & fetch models"** button probes the URL the
+/// user is *typing* (via `GET /ollama-models` → live `/api/tags`) and fills the
+/// dropdown — so you point at a server first, then pick from its real models,
+/// without a save round-trip. The saved URL is also probed on load for immediate
+/// status, and "Save" persists the choice.
 fn ollama_section() -> String {
     let cur_url = read_key("ollama_url");
     let cur_model = read_key("ollama_model");
@@ -243,79 +271,73 @@ fn ollama_section() -> String {
     } else {
         esc(&cur_url)
     };
-    let probe = crate::ollama::list_models();
-    let (status, model_field) = match &probe {
-        Ok(models) => {
-            let status = format!(
-                "<div style='color:#1a7f37;font-size:13px;margin-bottom:8px'>✅ {} · {} {}</div>",
+    // Load-time probe of the *saved* URL: immediate status + initial model list.
+    let (status, options) = match crate::ollama::list_models() {
+        Ok(models) => (
+            format!(
+                "<span style='color:#1a7f37'>✅ {} · {} {}</span>",
                 t("Connected", "接続OK"),
                 models.len(),
                 t("models", "モデル"),
-            );
-            // Dropdown of installed models. Keep the saved one selected even if it
-            // isn't in the live list (server may be temporarily different).
-            let mut opts = format!(
-                "<option value=''>{}</option>",
-                t("— choose a model —", "— モデルを選択 —")
-            );
-            let mut saw_cur = cur_model.is_empty();
-            for m in models {
-                let sel = if *m == cur_model {
-                    saw_cur = true;
-                    "selected"
-                } else {
-                    ""
-                };
-                opts.push_str(&format!("<option value='{0}' {sel}>{0}</option>", esc(m)));
-            }
-            if !saw_cur {
-                opts.push_str(&format!(
-                    "<option value='{0}' selected>{0}</option>",
-                    esc(&cur_model)
-                ));
-            }
-            (
-                status,
-                format!(
-                    "<select name='ollama_model' style='font-size:14px;padding:6px;min-width:220px'>{opts}</select>"
-                ),
-            )
-        }
-        Err(e) => {
-            let status = format!(
-                "<div style='color:#cf222e;font-size:13px;margin-bottom:8px'>⚠️ {}: {}</div>",
+            ),
+            model_options(&models, &cur_model),
+        ),
+        Err(e) => (
+            format!(
+                "<span style='color:#cf222e'>⚠️ {}: {}</span>",
                 t("Not reachable", "接続できません"),
-                esc(e),
-            );
-            // Fallback: a free-text model field so the user can still set one.
-            let field = format!(
-                "<input type='text' name='ollama_model' value='{}' placeholder='llama3.2' \
-                 style='font-size:14px;padding:6px;width:220px'>",
-                esc(&cur_model)
-            );
-            (status, field)
-        }
+                esc(&e),
+            ),
+            // Keep only the saved model (if any) until the user tests a URL.
+            model_options(&[], &cur_model),
+        ),
     };
+    // Small client script: fetch /api/tags for the TYPED url and rebuild the
+    // dropdown. textContent everywhere (no markup injected from the error string).
+    let js = r#"<script>
+function dsStat(st,c,txt){var sp=document.createElement('span');sp.style.color=c;sp.textContent=txt;st.innerHTML='';st.appendChild(sp);}
+async function dsOllamaTest(){
+ var u=document.getElementById('om_url'),s=document.getElementById('om_sel'),st=document.getElementById('om_status');
+ dsStat(st,'#57606a','__TESTING__');
+ try{
+  var r=await fetch('/ollama-models?url='+encodeURIComponent(u.value.trim()));
+  var j=await r.json();
+  if(j.ok){
+   var cur=s.value;s.innerHTML='';
+   var o0=document.createElement('option');o0.value='';o0.textContent='__CHOOSE__';s.appendChild(o0);
+   j.models.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m;if(m===cur)o.selected=true;s.appendChild(o);});
+   dsStat(st,'#1a7f37','✅ '+j.models.length+' __MODELS__');
+  }else{dsStat(st,'#cf222e','⚠️ '+(j.error||'error'));}
+ }catch(e){dsStat(st,'#cf222e','⚠️ '+e);}
+}
+</script>"#
+        .replace("__TESTING__", t("Testing…", "テスト中…"))
+        .replace("__CHOOSE__", t("— choose a model —", "— モデルを選択 —"))
+        .replace("__MODELS__", t("models", "モデル"));
     format!(
-        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>{status}\
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
+         <div id='om_status' style='font-size:13px;margin-bottom:8px'>{status}</div>\
          <form method='post' action='/settings'>\
          <input type='hidden' name='ai_action' value='ollama_save'>\
          <div style='margin-bottom:8px'><label style='font-size:13px;color:#57606a'>{url_l}</label><br>\
-         <input type='text' name='ollama_url' value='{url_val}' placeholder='{ph}' \
-         style='font-size:14px;padding:6px;width:300px'></div>\
+         <input type='text' id='om_url' name='ollama_url' value='{url_val}' placeholder='{ph}' \
+         style='font-size:14px;padding:6px;width:300px'> \
+         <button type='button' onclick='dsOllamaTest()' style='background:#2da44e;color:#fff;border:0;\
+         border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer'>{test}</button></div>\
          <div style='margin-bottom:8px'><label style='font-size:13px;color:#57606a'>{model_l}</label><br>\
-         {model_field}</div>\
+         <select id='om_sel' name='ollama_model' style='font-size:14px;padding:6px;min-width:220px'>{options}</select></div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
          padding:8px 16px;font-size:14px;cursor:pointer'>{save}</button></form>\
-         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>",
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>{js}",
         h = t("Ollama (local AI)", "Ollama（ローカルAI）"),
         url_l = t("Server URL", "サーバ URL"),
         ph = crate::ollama::DEFAULT_URL,
         model_l = t("Model", "モデル"),
-        save = t("💾 Save & test", "💾 保存してテスト"),
+        test = t("🔌 Test & fetch models", "🔌 接続テスト・モデル取得"),
+        save = t("💾 Save", "💾 保存"),
         note = t(
-            "No API key — Ollama runs on your machine. Default port is 11434; change the URL if you port-forward. Saving re-tests the connection and refreshes the model list. Only masked metadata is sent, never file contents.",
-            "API キー不要 — Ollama は端末上で動きます。既定ポートは 11434。ポートフォワーディングで変わる場合は URL を変更。保存で接続を再テストしモデル一覧を更新します。送信はマスク済みメタデータのみ（ファイル内容は送りません）。"
+            "No API key — Ollama runs on your machine. Default port is 11434; change the URL if you port-forward (e.g. an SSH tunnel), then click “Test & fetch models” to load its models. Save to keep the choice. Only masked metadata is sent, never file contents.",
+            "API キー不要 — Ollama は端末上で動きます。既定ポートは 11434。ポートフォワーディング（SSH トンネル等）で変わる場合は URL を変更し「接続テスト・モデル取得」でモデルを読み込みます。「保存」で確定。送信はマスク済みメタデータのみ（ファイル内容は送りません）。"
         ),
     )
 }
