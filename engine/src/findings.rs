@@ -98,12 +98,15 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
     let mut any_deletable = false;
     for (idx, f) in ordered {
         let c = sev_color(f.severity);
-        // A checkbox only for patterns whose path IS the thing to delete.
+        // A labelled checkbox only for patterns whose path IS the thing to delete.
         let checkbox = if trash::is_deletable(f.id) {
             any_deletable = true;
             format!(
-                "<input type='checkbox' name='del' value='{}' style='margin-right:8px'>",
-                esc(&f.path)
+                "<label style='display:inline-flex;align-items:center;gap:6px;font-size:12px;\
+                 color:#57606a;cursor:pointer;margin-right:10px'>\
+                 <input type='checkbox' name='del' value='{}'>{}</label>",
+                esc(&f.path),
+                t("select to delete", "削除対象にする"),
             )
         } else {
             String::new()
@@ -112,10 +115,10 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         // delete whole, but can be drilled into to pick sub-items.
         let drill = match crate::breakdown::Kind::for_finding(f.id) {
             Some(k) => format!(
-                "<div style='margin-top:6px'><a href='/breakdown?kind={}' onclick='{}' \
+                "<div style='margin-top:6px'><a href='/breakdown?kind={}' class='{}' \
                  style='font-size:13px'>{}</a></div>",
                 k.as_str(),
-                crate::page::SHOW_SPINNER,
+                crate::page::BUSY_LINK_CLASS,
                 t("🔍 Pick items to delete →", "🔍 内訳を見て選ぶ →"),
             ),
             None => String::new(),
@@ -143,14 +146,25 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         );
         let button = t("🗑 Move selected to Trash", "🗑 選択項目をゴミ箱へ");
         let note = t(
-            "Checked items go to the Trash (recoverable) — never deleted outright.",
-            "チェックした項目はゴミ箱へ（復元可）— 完全削除はしません。",
+            "Tick an item above first. Checked items go to the Trash (recoverable) — never deleted outright.",
+            "まず上の項目にチェックを。チェックした項目だけゴミ箱へ（復元可）— 完全削除はしません。",
         );
+        // The button stays disabled (greyed, no confirm) until at least one item
+        // is ticked, and shows the live count — so it never looks "armed" with
+        // nothing selected, and an empty click can't happen.
+        let script = "(function(){var f=document.currentScript.closest('form');\
+             var b=f.querySelector('.dsdelbtn');var n=b.querySelector('.dsdeln');\
+             function u(){var c=f.querySelectorAll(\"input[name='del']:checked\").length;\
+             n.textContent=c;b.disabled=c===0;b.style.opacity=c===0?'.5':'1';\
+             b.style.cursor=c===0?'not-allowed':'pointer';}\
+             f.addEventListener('change',u);u();})();";
         format!(
             "<form method='post' action='/delete' onsubmit='return confirm(\"{confirm}\")'>\
-             {out}<button type='submit' style='margin-top:8px;background:#cf222e;color:#fff;\
-             border:0;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer'>{button}</button>\
-             <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div></form>"
+             {out}<button type='submit' class='dsdelbtn' disabled style='margin-top:8px;\
+             background:#cf222e;color:#fff;border:0;border-radius:8px;padding:9px 18px;font-size:14px;\
+             cursor:not-allowed;opacity:.5'>{button} (<span class='dsdeln'>0</span>)</button>\
+             <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>\
+             <script>{script}</script></form>"
         )
     } else {
         out

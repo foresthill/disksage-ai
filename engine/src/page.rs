@@ -5,11 +5,14 @@ use crate::df;
 use crate::lang::{is_ja, t};
 use crate::util::{esc, human};
 
-/// Inline `onclick` that reveals the full-page loading spinner (markup + CSS live
-/// in `shell`). Put it on a link whose navigation triggers slow server-side work
-/// (e.g. the breakdown walk) so the click gives instant feedback instead of a
+/// Add this class to a link whose navigation triggers slow server-side work
+/// (e.g. the breakdown walk): a delegated handler in `shell` reveals the
+/// full-page loading spinner on click, so there's instant feedback instead of a
 /// dead ~10s wait. The spinner auto-hides when the next page paints (`pageshow`).
-pub const SHOW_SPINNER: &str = "document.getElementById('ds-busy').style.display='flex'";
+/// (A class + delegated handler, not an inline `onclick`, so the single quotes in
+/// the JS don't collide with the single-quoted HTML attribute — that collision
+/// silently broke the earlier inline version.)
+pub const BUSY_LINK_CLASS: &str = "dsbusy";
 
 /// The left sidebar nav. `active` is the current section key (scan/reports/settings).
 fn sidebar(active: &str) -> String {
@@ -59,7 +62,10 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
          <div id='ds-busy' class='dsov'><div class='dssp'></div></div>\
          <script>addEventListener('pageshow',function(){{var o=document.getElementById('ds-busy');\
          if(o)o.style.display='none'}});\
-         document.addEventListener('click',function(e){{var a=e.target.closest('.dsrev');\
+         document.addEventListener('click',function(e){{\
+         var busy=e.target.closest('.dsbusy');\
+         if(busy){{var o=document.getElementById('ds-busy');if(o)o.style.display='flex';}}\
+         var a=e.target.closest('.dsrev');\
          if(a){{e.preventDefault();fetch('/reveal',{{method:'POST',\
          headers:{{'Content-Type':'application/x-www-form-urlencoded'}},\
          body:'path='+encodeURIComponent(a.getAttribute('data-path'))}});}}}});</script>\
