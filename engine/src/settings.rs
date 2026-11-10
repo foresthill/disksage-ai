@@ -97,10 +97,30 @@ pub fn handle_post(body: &str) {
         write_key("update_check", if on { "" } else { "off" });
         return;
     }
+    // AI-provider selector (which backend to USE).
+    if form_value(body, "ai_provider_action") == Some("set") {
+        let p = form_value(body, "ai_provider").unwrap_or("");
+        if matches!(p, "" | "anthropic" | "openrouter" | "ollama" | "claude-cli") {
+            write_key("ai_provider", p);
+        }
+        return;
+    }
+    // Ollama connection form: base URL (port-forward friendly) + chosen model.
+    if form_value(body, "ai_action") == Some("ollama_save") {
+        if let Some(u) = form_value(body, "ollama_url") {
+            let u = percent_decode(u);
+            write_key("ollama_url", u.trim().trim_end_matches('/'));
+        }
+        if let Some(m) = form_value(body, "ollama_model") {
+            let m = percent_decode(m);
+            write_key("ollama_model", m.trim());
+        }
+        return;
+    }
     // AI-key form.
     match form_value(body, "ai_action") {
         Some("save") => {
-            let account = if form_value(body, "ai_provider") == Some("openrouter") {
+            let account = if form_value(body, "key_provider") == Some("openrouter") {
                 crate::secret::OPENROUTER
             } else {
                 crate::secret::ANTHROPIC
@@ -164,7 +184,7 @@ fn ai_section() -> String {
          <div style='color:#57606a;font-size:13px;margin-bottom:8px'>{status}</div>\
          <form method='post' action='/settings'>\
          <input type='hidden' name='ai_action' value='save'>\
-         <select name='ai_provider' style='font-size:14px;padding:6px'>\
+         <select name='key_provider' style='font-size:14px;padding:6px'>\
          <option value='anthropic'>Anthropic</option>\
          <option value='openrouter'>OpenRouter</option></select> \
          <input type='password' name='ai_key' placeholder='sk-…' autocomplete='off' \
@@ -177,6 +197,125 @@ fn ai_section() -> String {
         note = t(
             "Stored in your OS keychain — never written to disk in plaintext. An env var takes precedence if set.",
             "OS キーチェーンに保存（平文でディスクに書きません）。環境変数があればそちらが優先。"
+        ),
+    )
+}
+
+/// The AI-provider selector: which backend DiskSage uses for a judgment. Auto
+/// picks a BYOK key if present, else Claude Code. Explicit choices override it.
+fn provider_section() -> String {
+    let cur = read_key("ai_provider");
+    let opt = |val: &str, label: &str| {
+        let sel = if val == cur { "selected" } else { "" };
+        format!("<option value='{val}' {sel}>{label}</option>")
+    };
+    format!(
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
+         <form method='post' action='/settings'>\
+         <input type='hidden' name='ai_provider_action' value='set'>\
+         <select name='ai_provider' style='font-size:14px;padding:6px'>{}{}{}{}{}</select> \
+         <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
+         padding:7px 14px;font-size:13px;cursor:pointer'>{save}</button></form>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>",
+        opt("", t("Auto", "自動")),
+        opt("anthropic", "Anthropic (BYOK)"),
+        opt("openrouter", "OpenRouter (BYOK)"),
+        opt("ollama", t("Ollama (local)", "Ollama（ローカル）")),
+        opt("claude-cli", "Claude Code"),
+        h = t("AI provider", "AI プロバイダ"),
+        save = t("Save", "保存"),
+        note = t(
+            "Which backend to use for the AI judgment. For Ollama, set the URL and model below.",
+            "AI判定に使うバックエンド。Ollama を選んだら下で URL とモデルを設定してください。"
+        ),
+    )
+}
+
+/// The Ollama connection section: a configurable base URL (port-forward friendly)
+/// and a model picker. On render it probes `GET /api/tags` (fast; a localhost
+/// refusal is instant) to show a live connection status and populate the model
+/// list — so "Save & test" doubles as the connection test.
+fn ollama_section() -> String {
+    let cur_url = read_key("ollama_url");
+    let cur_model = read_key("ollama_model");
+    let url_val = if cur_url.is_empty() {
+        String::new()
+    } else {
+        esc(&cur_url)
+    };
+    let probe = crate::ollama::list_models();
+    let (status, model_field) = match &probe {
+        Ok(models) => {
+            let status = format!(
+                "<div style='color:#1a7f37;font-size:13px;margin-bottom:8px'>✅ {} · {} {}</div>",
+                t("Connected", "接続OK"),
+                models.len(),
+                t("models", "モデル"),
+            );
+            // Dropdown of installed models. Keep the saved one selected even if it
+            // isn't in the live list (server may be temporarily different).
+            let mut opts = format!(
+                "<option value=''>{}</option>",
+                t("— choose a model —", "— モデルを選択 —")
+            );
+            let mut saw_cur = cur_model.is_empty();
+            for m in models {
+                let sel = if *m == cur_model {
+                    saw_cur = true;
+                    "selected"
+                } else {
+                    ""
+                };
+                opts.push_str(&format!("<option value='{0}' {sel}>{0}</option>", esc(m)));
+            }
+            if !saw_cur {
+                opts.push_str(&format!(
+                    "<option value='{0}' selected>{0}</option>",
+                    esc(&cur_model)
+                ));
+            }
+            (
+                status,
+                format!(
+                    "<select name='ollama_model' style='font-size:14px;padding:6px;min-width:220px'>{opts}</select>"
+                ),
+            )
+        }
+        Err(e) => {
+            let status = format!(
+                "<div style='color:#cf222e;font-size:13px;margin-bottom:8px'>⚠️ {}: {}</div>",
+                t("Not reachable", "接続できません"),
+                esc(e),
+            );
+            // Fallback: a free-text model field so the user can still set one.
+            let field = format!(
+                "<input type='text' name='ollama_model' value='{}' placeholder='llama3.2' \
+                 style='font-size:14px;padding:6px;width:220px'>",
+                esc(&cur_model)
+            );
+            (status, field)
+        }
+    };
+    format!(
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>{status}\
+         <form method='post' action='/settings'>\
+         <input type='hidden' name='ai_action' value='ollama_save'>\
+         <div style='margin-bottom:8px'><label style='font-size:13px;color:#57606a'>{url_l}</label><br>\
+         <input type='text' name='ollama_url' value='{url_val}' placeholder='{ph}' \
+         style='font-size:14px;padding:6px;width:300px'></div>\
+         <div style='margin-bottom:8px'><label style='font-size:13px;color:#57606a'>{model_l}</label><br>\
+         {model_field}</div>\
+         <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
+         padding:8px 16px;font-size:14px;cursor:pointer'>{save}</button></form>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>",
+        h = t("Ollama (local AI)", "Ollama（ローカルAI）"),
+        url_l = t("Server URL", "サーバ URL"),
+        ph = crate::ollama::DEFAULT_URL,
+        model_l = t("Model", "モデル"),
+        save = t("💾 Save & test", "💾 保存してテスト"),
+        note = t(
+            "No API key — Ollama runs on your machine. Default port is 11434; change the URL if you port-forward. Saving re-tests the connection and refreshes the model list. Only masked metadata is sent, never file contents.",
+            "API キー不要 — Ollama は端末上で動きます。既定ポートは 11434。ポートフォワーディングで変わる場合は URL を変更。保存で接続を再テストしモデル一覧を更新します。送信はマスク済みメタデータのみ（ファイル内容は送りません）。"
         ),
     )
 }
@@ -241,14 +380,16 @@ pub fn settings_html(saved: bool) -> String {
          <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{note}</div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{save}</button></form>\
-         {ai}{update}\
+         {provider}{ai}{ollama}{update}\
          <h3 style='font-size:15px;margin:24px 0 6px'>{about}</h3>\
          <div style='color:#57606a;font-size:13px;line-height:1.7'>{data_l} <code>{}</code><br>{never}</div>",
         opt("", t("Auto (system)", "自動（システム）")),
         opt("ja", "日本語"),
         opt("en", "English"),
         esc(&data_dir),
+        provider = provider_section(),
         ai = ai_section(),
+        ollama = ollama_section(),
         update = update_section(),
         title = t("⚙️ Settings", "⚙️ 設定"),
         lang_h = t("Report language", "レポートの言語"),

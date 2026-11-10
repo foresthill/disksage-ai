@@ -74,33 +74,50 @@ fn resolved_key(account: &str) -> Option<String> {
         .or_else(|| crate::secret::get(account))
 }
 
+/// The chosen AI provider: env `DISKSAGE_AI_PROVIDER` (highest) → config
+/// `ai_provider` → "" (auto). One source of truth so env, the CLI and the GUI
+/// Settings screen all agree. Values: "" | anthropic | openrouter | ollama |
+/// claude-cli.
+fn selected_provider() -> String {
+    std::env::var("DISKSAGE_AI_PROVIDER")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| crate::settings::read_key("ai_provider"))
+}
+
+/// Whether the user picked the local Ollama backend.
+pub fn use_ollama() -> bool {
+    selected_provider() == "ollama"
+}
+
 /// Whether to route the analysis through the `claude` CLI instead of a BYOK HTTP
-/// call. Precedence: explicit DISKSAGE_AI_PROVIDER=claude-cli → yes; any other
-/// explicit provider → no; otherwise auto (no key in env/keychain AND `claude`
-/// is installed).
+/// call. Precedence: explicit provider `claude-cli` → yes; any other explicit
+/// provider → no; otherwise auto (no key in env/keychain AND `claude` installed).
 fn use_claude_cli() -> bool {
-    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-    match env("DISKSAGE_AI_PROVIDER").as_deref() {
-        Some("claude-cli") => true,
-        Some(_) => false,
-        None => {
+    match selected_provider().as_str() {
+        "claude-cli" => true,
+        "" => {
             resolved_key(crate::secret::ANTHROPIC).is_none()
                 && resolved_key(crate::secret::OPENROUTER).is_none()
                 && crate::claude_cli::available().is_some()
         }
+        _ => false,
     }
 }
 
-/// True when an AI backend is usable: a BYOK HTTP key, or the `claude` CLI.
+/// True when an AI backend is usable: Ollama (local), a BYOK HTTP key, or the
+/// `claude` CLI. (Ollama reachability is checked at send time, not here, so the
+/// Scan page stays responsive.)
 pub fn available() -> bool {
-    use_claude_cli() || resolve_provider().is_ok()
+    use_ollama() || use_claude_cli() || resolve_provider().is_ok()
 }
 
-/// Resolve the provider from the environment or the OS keychain (BYOK).
+/// Resolve the HTTP (BYOK) provider from the selected provider plus the key in
+/// the environment or OS keychain.
 pub fn resolve_provider() -> Result<Provider, String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     resolve_from(
-        &env("DISKSAGE_AI_PROVIDER").unwrap_or_default(),
+        &selected_provider(),
         resolved_key(crate::secret::ANTHROPIC),
         resolved_key(crate::secret::OPENROUTER),
         env("DISKSAGE_AI_BASE_URL"),
@@ -124,6 +141,10 @@ pub fn analyze_with_audit(
     lang_ja: bool,
     audit_log: bool,
 ) -> Result<Analysis, String> {
+    // Local Ollama when selected — runs on the user's machine, no API key.
+    if use_ollama() {
+        return crate::ollama::run(findings, lang_ja, audit_log);
+    }
     // Prefer your installed, logged-in Claude Code (`claude -p`) when chosen or
     // when no BYOK key is set — no separate API key needed.
     if use_claude_cli() {
@@ -227,8 +248,9 @@ pub fn output_schema() -> Value {
     })
 }
 
-/// The system instructions, shared by the HTTP body and the CLI prompt.
-fn system_text(lang_ja: bool) -> String {
+/// The system instructions, shared by the HTTP body, the CLI prompt and the
+/// Ollama `/api/chat` body (so every backend sends the identical prompt).
+pub(crate) fn system_text(lang_ja: bool) -> String {
     let mut system = String::from(
         "You are a disk-cleanup advisor for DiskSage, a tool that NEVER deletes anything \
          automatically — it only suggests. You receive disk-space findings as METADATA ONLY: \
@@ -252,7 +274,7 @@ fn system_text(lang_ja: bool) -> String {
 /// The user turn: masked findings as metadata. Built from `ai_preview::rows`,
 /// the single masking source — so what the /ai-preview page shows is exactly
 /// what is sent (paths and descriptions masked, never a raw user path).
-fn user_text(findings: &[Finding], host_os: &str) -> String {
+pub(crate) fn user_text(findings: &[Finding], host_os: &str) -> String {
     let items: Vec<Value> = crate::ai_preview::rows(findings)
         .iter()
         .enumerate()
