@@ -56,12 +56,17 @@ fn trigger_scan(state: State) {
 
 /// The Scan page: overview (instant) + findings (or a scanning banner). Returns
 /// the body and whether the page should auto-refresh (while a scan is running).
-fn scan_page(state: &State) -> (String, bool) {
+fn scan_page(state: &State, deleted: bool) -> (String, bool) {
     let mut body = String::new();
     // Prepend the "new version" banner if the background check found one. Taken
     // in its own lock scope so we don't hold the lock across the page build.
     if let Some(u) = &state.lock().unwrap().update {
         body.push_str(&crate::page::update_banner(&u.tag, &u.url));
+    }
+    // After a delete: the files went to the Trash, so the disk bar below won't
+    // drop until the Trash is emptied. Say so, right where the confusion happens.
+    if deleted {
+        body.push_str(&crate::page::trash_banner());
     }
     body.push_str(&crate::page::overview_html());
     body.push_str(t(
@@ -71,6 +76,16 @@ fn scan_page(state: &State) -> (String, bool) {
     let s = state.lock().unwrap();
     match &s.findings {
         Some(found) => {
+            // A rescan is running (e.g. just after a delete): the list below is
+            // the previous result; show a note and auto-refresh until it lands.
+            if s.scanning {
+                body.push_str(t(
+                    "<div style='margin:8px 0;padding:10px 12px;background:#fff8c5;border:1px solid \
+                     #eac54f;border-radius:8px;font-size:13px'>🔄 Re-scanning… the list updates automatically.</div>",
+                    "<div style='margin:8px 0;padding:10px 12px;background:#fff8c5;border:1px solid \
+                     #eac54f;border-radius:8px;font-size:13px'>🔄 再スキャン中… 結果は自動で更新されます。</div>",
+                ));
+            }
             let ai_ref =
                 s.ai.as_ref()
                     .and_then(|r| r.as_ref().ok())
@@ -78,8 +93,8 @@ fn scan_page(state: &State) -> (String, bool) {
             body.push_str(&crate::findings::findings_html(found, ai_ref));
             body.push_str(&crate::ai_ui::ai_controls(s.ai.as_ref(), s.ai_running));
             body.push_str(&crate::deep::section_html(s.deep.as_ref(), s.deep_running));
-            // Auto-refresh while an AI call or the Full scan is in flight.
-            (body, s.ai_running || s.deep_running)
+            // Auto-refresh while a rescan, an AI call, or the Full scan is running.
+            (body, s.scanning || s.ai_running || s.deep_running)
         }
         None => {
             body.push_str(t(
@@ -209,7 +224,7 @@ pub fn run(port: u16) -> Result<(), String> {
                 }
             }
             trigger_scan(state.clone()); // refresh findings after deletion
-            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let loc = Header::from_bytes(&b"Location"[..], &b"/?deleted=1"[..]).expect("hdr");
             let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
         }
@@ -317,7 +332,8 @@ pub fn run(port: u16) -> Result<(), String> {
         }
         let html = match path {
             "/" | "/index.html" => {
-                let (body, refresh) = scan_page(&state);
+                let deleted = reports::query_param(&url, "deleted").is_some();
+                let (body, refresh) = scan_page(&state, deleted);
                 crate::page::shell("scan", t("Scan", "スキャン"), &body, refresh)
             }
             "/reports" => crate::page::shell(
