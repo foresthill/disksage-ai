@@ -49,12 +49,14 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
         "<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>{meta}\
          <meta name='viewport' content='width=device-width, initial-scale=1'>\
          <title>DiskSage — {title}</title>\
-         <style>body{{padding-left:200px}}@media(max-width:640px){{body{{padding-left:0}}}}\
-         .dsov{{position:fixed;inset:0;background:rgba(246,248,250,.72);display:none;\
+         <style>body{{padding-left:200px}}\
+         .dsov{{position:fixed;top:0;right:0;bottom:0;left:200px;\
+         background:rgba(246,248,250,.72);display:none;\
          align-items:center;justify-content:center;z-index:50}}\
          .dssp{{width:40px;height:40px;border:4px solid #d0d7de;border-top-color:#1a7f37;\
          border-radius:50%;animation:dsspin .8s linear infinite}}\
-         @keyframes dsspin{{to{{transform:rotate(360deg)}}}}</style></head>\
+         @keyframes dsspin{{to{{transform:rotate(360deg)}}}}\
+         @media(max-width:640px){{body{{padding-left:0}}.dsov{{left:0}}}}</style></head>\
          <body style='font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;\
          margin:0;background:#f6f8fa;color:#1f2328'>{sidebar}\
          <div style='max-width:880px;margin:24px auto;background:#fff;border:1px solid #d0d7de;\
