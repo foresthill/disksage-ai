@@ -49,7 +49,7 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
         "<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>{meta}\
          <meta name='viewport' content='width=device-width, initial-scale=1'>\
          <title>DiskSage — {title}</title>\
-         <style>body{{padding-left:200px}}\
+         <style>html{{background:#f6f8fa}}body{{padding-left:200px}}\
          .dsov{{position:fixed;top:0;right:0;bottom:0;left:200px;\
          background:rgba(246,248,250,.72);display:none;\
          align-items:center;justify-content:center;z-index:50}}\
@@ -94,6 +94,20 @@ pub fn update_banner(tag: &str, url: &str) -> String {
         "<div style='margin:0 0 16px;padding:12px 14px;background:#ddf4ff;border:1px solid #54aeff;\
          border-radius:8px;font-size:14px'>{msg} \
          <a href='{url}' target='_blank' rel='noopener' style='font-weight:600'>{link} →</a></div>"
+    )
+}
+
+/// Shown once after a delete: the items went to the Trash, so the free-space
+/// number above won't go up until the Trash is emptied. Prevents the "I deleted
+/// things but the disk bar didn't move" confusion.
+pub fn trash_banner() -> String {
+    let msg = t(
+        "🗑 Moved to the Trash. The free-space figure below only goes up once you empty the Trash (Finder → Empty Trash) — items stay recoverable until then.",
+        "🗑 ゴミ箱へ移動しました。下の空き容量が実際に増えるのは、ゴミ箱を空にした後です（Finder →「ゴミ箱を空にする」）。それまでは復元できます。",
+    );
+    format!(
+        "<div style='margin:0 0 16px;padding:12px 14px;background:#dafbe1;border:1px solid #4ac26b;\
+         border-radius:8px;font-size:14px'>{msg}</div>"
     )
 }
 
