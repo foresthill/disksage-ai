@@ -12,8 +12,8 @@ fn ai_button(rerun: bool) -> String {
         t("🧠 Ask the AI to judge", "🧠 AIに判定してもらう")
     };
     let note = t(
-        "Sends masked metadata only (no file contents) to your configured provider or your local Claude Code.",
-        "マスク済みメタデータのみ送信（ファイル内容は送りません）。設定済みプロバイダ、または端末の Claude Code を使用。",
+        "Sends masked metadata only (no file contents) to your configured provider — a BYOK API, local Ollama, or your local Claude Code.",
+        "マスク済みメタデータのみ送信（ファイル内容は送りません）。設定済みプロバイダ（BYOK API／ローカル Ollama／端末の Claude Code）を使用。",
     );
     let preview = t(
         "🔒 See exactly what would be sent",
