@@ -102,11 +102,16 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         let checkbox = if trash::is_deletable(f.id) {
             any_deletable = true;
             format!(
-                "<label style='display:inline-flex;align-items:center;gap:6px;font-size:12px;\
-                 color:#57606a;cursor:pointer;margin-right:10px'>\
-                 <input type='checkbox' name='del' value='{}'>{}</label>",
+                "<label style='display:flex;align-items:center;gap:8px;font-size:13px;\
+                 color:#1f2328;cursor:pointer;background:#fff8c5;border:1px solid #eac54f;\
+                 border-radius:6px;padding:7px 10px;margin-bottom:10px;font-weight:600'>\
+                 <input type='checkbox' name='del' value='{}' style='width:16px;height:16px;\
+                 flex:none'>{}</label>",
                 esc(&f.path),
-                t("select to delete", "削除対象にする"),
+                t(
+                    "☑️ Select this item to delete",
+                    "☑️ この項目を削除対象にする"
+                ),
             )
         } else {
             String::new()
@@ -146,8 +151,8 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         );
         let button = t("🗑 Move selected to Trash", "🗑 選択項目をゴミ箱へ");
         let note = t(
-            "Tick an item above first. Checked items go to the Trash (recoverable) — never deleted outright.",
-            "まず上の項目にチェックを。チェックした項目だけゴミ箱へ（復元可）— 完全削除はしません。",
+            "Tick the yellow \"select to delete\" box on an item above to enable this button. Checked items go to the Trash (recoverable) — never deleted outright.",
+            "上の黄色い「削除対象にする」欄にチェックを入れると、このボタンが押せます。選んだ項目はゴミ箱へ（復元可）— 完全削除はしません。",
         );
         // The button stays disabled (greyed, no confirm) until at least one item
         // is ticked, and shows the live count — so it never looks "armed" with
