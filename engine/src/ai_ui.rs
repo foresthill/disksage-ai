@@ -24,7 +24,27 @@ fn ai_button(rerun: bool) -> String {
          <button type='submit' style='background:#8250df;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{label}</button>\
          <div style='color:#57606a;font-size:12px;margin-top:6px'>{note} \
-         <a href='/ai-preview'>{preview}</a></div></form>"
+         <a href='/ai-preview'>{preview}</a></div></form>{}",
+        audit_note(),
+    )
+}
+
+/// When audit logging is on (Settings toggle / env / flag), show that each run is
+/// being saved and a link to open the folder — so it's visible in the GUI, not
+/// just on disk. Empty when logging is off.
+fn audit_note() -> String {
+    if !crate::audit::enabled(false) {
+        return String::new();
+    }
+    let dir = crate::audit::logs_dir().display().to_string();
+    format!(
+        "<div style='margin-top:8px;color:#57606a;font-size:12px'>📝 {} <code>{}</code> \
+         <form method='post' action='/open-logs' style='display:inline'>\
+         <button type='submit' style='background:none;border:0;color:#1f6feb;cursor:pointer;\
+         font-size:12px;text-decoration:underline;padding:0'>{}</button></form></div>",
+        t("Audit logging ON — saved to", "監査ログ ON — 保存先:"),
+        esc(&dir),
+        t("Open folder", "フォルダを開く"),
     )
 }
 

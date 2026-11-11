@@ -42,6 +42,32 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Open a folder itself in the file manager (not "reveal & select"). Used for the
+/// AI audit-log directory so the user lands inside it. The caller passes a fixed,
+/// app-owned path (`audit::logs_dir()`), never an arbitrary path from the client.
+pub fn open_folder(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        run("open", &[path.as_os_str()])
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(path.as_os_str())
+            .spawn();
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        run("xdg-open", &[path.as_os_str()])
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        let _ = path;
+        Err("opening a folder is not supported on this platform yet".into())
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn run(bin: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
     let out = std::process::Command::new(bin)

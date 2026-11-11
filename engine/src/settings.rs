@@ -97,6 +97,13 @@ pub fn handle_post(body: &str) {
         write_key("update_check", if on { "" } else { "off" });
         return;
     }
+    // AI audit-log toggle (a checkbox: present only when ticked). Default off, so
+    // we store `on` only when it comes back checked.
+    if form_value(body, "audit_action") == Some("set") {
+        let on = form_value(body, "ai_audit_log").is_some();
+        write_key("ai_audit_log", if on { "on" } else { "" });
+        return;
+    }
     // AI-provider selector (which backend to USE).
     if form_value(body, "ai_provider_action") == Some("set") {
         let p = form_value(body, "ai_provider").unwrap_or("");
@@ -342,6 +349,43 @@ async function dsOllamaTest(){
     )
 }
 
+/// The AI audit-log section: a checkbox to save exactly what is sent to / returned
+/// from the AI (request, response, masking table) under `~/.disksage/ai-logs/`,
+/// plus a button to open that folder. Default off — the logs include real local
+/// paths, so they stay on your machine and are opt-in.
+fn audit_section() -> String {
+    let on = read_key("ai_audit_log") == "on";
+    let checked = if on { "checked" } else { "" };
+    let dir = crate::audit::logs_dir().display().to_string();
+    format!(
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
+         <form method='post' action='/settings'>\
+         <input type='hidden' name='audit_action' value='set'>\
+         <label style='font-size:14px'>\
+         <input type='checkbox' name='ai_audit_log' {checked}> {lbl}</label> \
+         <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
+         padding:7px 14px;font-size:13px;cursor:pointer;margin-left:8px'>{save}</button></form>\
+         <form method='post' action='/open-logs' style='margin-top:8px'>\
+         <button type='submit' style='background:#6e7781;color:#fff;border:0;border-radius:8px;\
+         padding:7px 14px;font-size:13px;cursor:pointer'>{open}</button></form>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note} <code>{dir}</code></div>",
+        h = t("AI audit log", "AI 監査ログ"),
+        lbl = t(
+            "Save what is sent to / returned from the AI",
+            "AI に送った内容・返ってきた内容を保存する"
+        ),
+        save = t("Save", "保存"),
+        open = t("📂 Open logs folder", "📂 ログフォルダを開く"),
+        note = t(
+            "Saves the exact request, the raw response, and the masking table (real → masked) \
+             per run. Logs contain your real local paths, so they stay on your machine — \
+             nothing is uploaded. Off by default.",
+            "実行ごとに「実際の送信内容・生のレスポンス・マスキング表（実パス→送信値）」を保存します。\
+             ログには実パスが含まれるため端末内にのみ保存され、どこにもアップロードしません。既定はオフ。"
+        ),
+    )
+}
+
 /// The update-check section: a single checkbox (default on). Explains that it
 /// only reads the public GitHub Releases page and never auto-downloads.
 fn update_section() -> String {
@@ -402,7 +446,7 @@ pub fn settings_html(saved: bool) -> String {
          <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{note}</div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{save}</button></form>\
-         {provider}{ai}{ollama}{update}\
+         {provider}{ai}{ollama}{audit}{update}\
          <h3 style='font-size:15px;margin:24px 0 6px'>{about}</h3>\
          <div style='color:#57606a;font-size:13px;line-height:1.7'>{data_l} <code>{}</code><br>{never}</div>",
         opt("", t("Auto (system)", "自動（システム）")),
@@ -412,6 +456,7 @@ pub fn settings_html(saved: bool) -> String {
         provider = provider_section(),
         ai = ai_section(),
         ollama = ollama_section(),
+        audit = audit_section(),
         update = update_section(),
         title = t("⚙️ Settings", "⚙️ 設定"),
         lang_h = t("Report language", "レポートの言語"),

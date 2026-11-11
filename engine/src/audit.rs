@@ -31,9 +31,12 @@ pub fn logs_dir() -> PathBuf {
     home.join("ai-logs")
 }
 
-/// True when audit logging is on: the `--ai-log` flag, or `DISKSAGE_AI_LOG=1`.
+/// True when audit logging is on: the `--ai-log` flag, `DISKSAGE_AI_LOG=1`, or the
+/// Settings toggle (config `ai_audit_log=on`). The flag/env override the config so
+/// the CLI and automation still work without touching the GUI setting.
 pub fn enabled(flag: bool) -> bool {
     flag || std::env::var("DISKSAGE_AI_LOG").ok().as_deref() == Some("1")
+        || crate::settings::read_key("ai_audit_log") == "on"
 }
 
 /// One audit session = one timestamped directory. Created eagerly by `start`.
