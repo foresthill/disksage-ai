@@ -319,6 +319,26 @@ pub fn run(port: u16) -> Result<(), String> {
             }
             continue;
         }
+        // Live Ollama probe for the Settings "test & fetch models" button: GET the
+        // model list from the URL the user is *typing* (query param), without
+        // saving first. Returns JSON {ok, models|error}. Runs on the request
+        // thread (fine for a local, single-user UI; capped by the client timeout).
+        if path == "/ollama-models" {
+            let typed = reports::query_param(&url, "url")
+                .map(percent_decode)
+                .unwrap_or_default();
+            let json = match crate::ollama::list_models_at(&typed) {
+                Ok(models) => serde_json::json!({"ok": true, "models": models}),
+                Err(e) => serde_json::json!({"ok": false, "error": e}),
+            };
+            let jtype = Header::from_bytes(
+                &b"Content-Type"[..],
+                &b"application/json; charset=utf-8"[..],
+            )
+            .expect("hdr");
+            let _ = req.respond(Response::from_string(json.to_string()).with_header(jtype));
+            continue;
+        }
         // Transparency: show exactly the masked metadata the AI would receive.
         if path == "/ai-preview" {
             let findings = {
