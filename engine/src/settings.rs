@@ -386,6 +386,23 @@ fn audit_section() -> String {
     )
 }
 
+/// The startup section: informational only. The actual login-item toggle lives in
+/// the native menu bar (tray), because this web UI runs on localhost and can't call
+/// the OS auto-start API — so we point the user there instead of a dead control.
+fn startup_section() -> String {
+    format!(
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
+         <div style='color:#57606a;font-size:13px;line-height:1.6'>{note}</div>",
+        h = t("Start at login", "ログイン時に起動"),
+        note = t(
+            "To launch DiskSage automatically at login, use the menu bar icon → “Start at Login”. \
+             (It's a native setting, so it isn't on this page.)",
+            "ログイン時に DiskSage を自動起動するには、メニューバーのアイコン →「ログイン時に起動」を選んでください。\
+             （OS ネイティブの設定のため、この画面にはありません。）"
+        ),
+    )
+}
+
 /// The update-check section: a single checkbox (default on). Explains that it
 /// only reads the public GitHub Releases page and never auto-downloads.
 fn update_section() -> String {
@@ -446,7 +463,7 @@ pub fn settings_html(saved: bool) -> String {
          <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{note}</div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{save}</button></form>\
-         {provider}{ai}{ollama}{audit}{update}\
+         {provider}{ai}{ollama}{audit}{update}{startup}\
          <h3 style='font-size:15px;margin:24px 0 6px'>{about}</h3>\
          <div style='color:#57606a;font-size:13px;line-height:1.7'>{data_l} <code>{}</code><br>{never}</div>",
         opt("", t("Auto (system)", "自動（システム）")),
@@ -458,6 +475,7 @@ pub fn settings_html(saved: bool) -> String {
         ollama = ollama_section(),
         audit = audit_section(),
         update = update_section(),
+        startup = startup_section(),
         title = t("⚙️ Settings", "⚙️ 設定"),
         lang_h = t("Report language", "レポートの言語"),
         note = t(

@@ -314,6 +314,18 @@ pub fn run(port: u16) -> Result<(), String> {
             let _ = req.respond(Response::empty(code));
             continue;
         }
+        // Open the new-version release page in the default browser. The URL is the
+        // one the engine's own update check produced (never a client-supplied one),
+        // so a cross-origin Tauri webview — where a plain target=_blank link does
+        // nothing — still reaches the download page.
+        if path == "/open-update" && *req.method() == Method::Post {
+            let url = state.lock().unwrap().update.as_ref().map(|u| u.url.clone());
+            if let Some(u) = url {
+                let _ = crate::reveal::open_url(&u);
+            }
+            let _ = req.respond(Response::empty(204));
+            continue;
+        }
         // Open the AI audit-log folder in the file manager. Fixed, app-owned path
         // (audit::logs_dir()); created if missing so the window isn't empty-404.
         if path == "/open-logs" && *req.method() == Method::Post {

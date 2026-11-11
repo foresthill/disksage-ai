@@ -79,9 +79,8 @@ pub fn shell(active: &str, title: &str, body: &str, refresh: bool) -> String {
 
 /// A "new version available" banner, shown at the top of the Scan page when the
 /// update check found a newer release. Links to the Releases page — no download.
-pub fn update_banner(tag: &str, url: &str) -> String {
+pub fn update_banner(tag: &str, _url: &str) -> String {
     let tag = esc(tag);
-    let url = esc(url);
     let (msg, link) = if is_ja() {
         (
             format!("⬆️ 新しいバージョン {tag} が公開されています。"),
@@ -90,10 +89,16 @@ pub fn update_banner(tag: &str, url: &str) -> String {
     } else {
         (format!("⬆️ A new version {tag} is available."), "Download")
     };
+    // A form POST (not an <a target=_blank>, which does nothing inside the Tauri
+    // webview): the engine opens the release page in the default browser from its
+    // own stored URL (so no client-supplied URL is trusted).
     format!(
         "<div style='margin:0 0 16px;padding:12px 14px;background:#ddf4ff;border:1px solid #54aeff;\
          border-radius:8px;font-size:14px'>{msg} \
-         <a href='{url}' target='_blank' rel='noopener' style='font-weight:600'>{link} →</a></div>"
+         <form method='post' action='/open-update' style='display:inline'>\
+         <button type='submit' style='background:none;border:0;color:#0969da;cursor:pointer;\
+         font-weight:600;font-size:14px;text-decoration:underline;padding:0'>{link} →</button>\
+         </form></div>"
     )
 }
 

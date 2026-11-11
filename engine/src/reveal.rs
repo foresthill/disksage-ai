@@ -68,6 +68,37 @@ pub fn open_folder(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Open a URL in the user's default browser. Used for the "download the new
+/// version" banner: the served UI is cross-origin to the Tauri webview, where a
+/// plain `target=_blank` link does nothing, so the engine (running locally as the
+/// user) opens the URL itself — which also works in a plain browser. The caller
+/// passes a fixed, app-generated URL (the update's release page), never a
+/// client-supplied one.
+pub fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        run("open", &[url.as_ref()])
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // `cmd /c start "" <url>` opens the default browser; the empty "" is the
+        // window title `start` otherwise consumes its first quoted arg as.
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .spawn();
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        run("xdg-open", &[url.as_ref()])
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        let _ = url;
+        Err("opening a URL is not supported on this platform yet".into())
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn run(bin: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
     let out = std::process::Command::new(bin)
