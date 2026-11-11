@@ -22,6 +22,10 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::UpdaterExt;
 
+// Reuse the engine's locale helper so the native menu bar / dialogs match the web
+// UI's language (en/ja). Resolved once at startup via `lang::init()`.
+use disksage_engine::lang::t;
+
 const TRAY_ID: &str = "disksage-tray";
 const REFRESH: Duration = Duration::from_secs(30);
 /// Must match the port the window's index.html polls.
@@ -69,21 +73,35 @@ async fn check_update(app: tauri::AppHandle, interactive: bool) {
     match updater.check().await {
         Ok(Some(update)) => {
             let version = update.version.clone();
-            let proceed = app
-                .dialog()
-                .message(format!(
-                    "A new version ({version}) is available.\n\n\
-                     Download and install it now? DiskSage will restart."
+            let proceed =
+                app.dialog()
+                    .message(format!(
+                    "{}\n\n{}",
+                    t("A new version", "新しいバージョン").to_string() + &format!(" ({version}) ")
+                        + t("is available.", "が公開されています。"),
+                    t(
+                        "Download and install it now? DiskSage will restart.",
+                        "今すぐダウンロードしてインストールしますか？ DiskSage は再起動します。"
+                    ),
                 ))
-                .title("DiskSage — Update available")
-                .buttons(MessageDialogButtons::OkCancel)
-                .blocking_show();
+                    .title(t(
+                        "DiskSage — Update available",
+                        "DiskSage — アップデートあり",
+                    ))
+                    .buttons(MessageDialogButtons::OkCancel)
+                    .blocking_show();
             if proceed {
                 match update.download_and_install(|_, _| {}, || {}).await {
                     Ok(()) => app.restart(),
                     Err(e) => {
                         app.dialog()
-                            .message(format!("The update could not be installed:\n{e}"))
+                            .message(format!(
+                                "{}\n{e}",
+                                t(
+                                    "The update could not be installed:",
+                                    "アップデートをインストールできませんでした:"
+                                )
+                            ))
                             .title("DiskSage")
                             .blocking_show();
                     }
@@ -93,7 +111,7 @@ async fn check_update(app: tauri::AppHandle, interactive: bool) {
         Ok(None) => {
             if interactive {
                 app.dialog()
-                    .message("You're on the latest version.")
+                    .message(t("You're on the latest version.", "最新バージョンです。"))
                     .title("DiskSage")
                     .blocking_show();
             }
@@ -101,7 +119,10 @@ async fn check_update(app: tauri::AppHandle, interactive: bool) {
         Err(e) => {
             if interactive {
                 app.dialog()
-                    .message(format!("Update check failed:\n{e}"))
+                    .message(format!(
+                        "{}\n{e}",
+                        t("Update check failed:", "アップデート確認に失敗:")
+                    ))
                     .title("DiskSage")
                     .blocking_show();
             }
@@ -112,13 +133,19 @@ async fn check_update(app: tauri::AppHandle, interactive: bool) {
 /// Build the menu bar tray: free-space title + a small menu
 /// (Open / Start at Login / Quit).
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open_i = MenuItem::with_id(app, "open", "Open DiskSage", true, None::<&str>)?;
+    let open_i = MenuItem::with_id(
+        app,
+        "open",
+        t("Open DiskSage", "DiskSage を開く"),
+        true,
+        None::<&str>,
+    )?;
     // Reflect the current login-item state so the checkmark is truthful.
     let autostart_on = app.autolaunch().is_enabled().unwrap_or(false);
     let login_i = CheckMenuItem::with_id(
         app,
         "start_at_login",
-        "Start at Login",
+        t("Start at Login", "ログイン時に起動"),
         true,
         autostart_on,
         None::<&str>,
@@ -126,18 +153,21 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let check_i = MenuItem::with_id(
         app,
         "check_update",
-        "Check for Updates…",
+        t("Check for Updates…", "アップデートを確認…"),
         true,
         None::<&str>,
     )?;
-    let quit_i = PredefinedMenuItem::quit(app, Some("Quit DiskSage"))?;
+    let quit_i = PredefinedMenuItem::quit(app, Some(t("Quit DiskSage", "DiskSage を終了")))?;
     let menu = Menu::with_items(app, &[&open_i, &check_i, &login_i, &quit_i])?;
 
     // The toggle updates its own checkmark only when the (un)register succeeds.
     let login_for_cb = login_i.clone();
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .title(free_title())
-        .tooltip("DiskSage — startup disk free space")
+        .tooltip(t(
+            "DiskSage — startup disk free space",
+            "DiskSage — 起動ディスクの空き容量",
+        ))
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -203,6 +233,9 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // Resolve the locale once (config → env → OS) so the native menu bar,
+            // tray and updater dialogs match the web UI's language (en/ja).
+            disksage_engine::lang::init();
             // macOS: show a Dock icon (so the app icon is visible there) plus a
             // standard menu bar (About / Hide / Quit, Edit, Window…). The app is
             // still menu-bar-resident — closing the window hides it (see below)
