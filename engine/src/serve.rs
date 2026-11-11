@@ -257,6 +257,15 @@ pub fn run(port: u16) -> Result<(), String> {
             let _ = req.respond(Response::empty(code));
             continue;
         }
+        // Open the AI audit-log folder in the file manager. Fixed, app-owned path
+        // (audit::logs_dir()); created if missing so the window isn't empty-404.
+        if path == "/open-logs" && *req.method() == Method::Post {
+            let dir = crate::audit::logs_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = crate::reveal::open_folder(&dir);
+            let _ = req.respond(Response::empty(204));
+            continue;
+        }
         // Saving settings: language (→ config) or the AI key (→ OS keychain).
         if path == "/settings" && *req.method() == Method::Post {
             let mut body = String::new();
