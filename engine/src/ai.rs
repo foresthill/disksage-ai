@@ -93,7 +93,7 @@ pub fn use_ollama() -> bool {
 /// Whether to route the analysis through the `claude` CLI instead of a BYOK HTTP
 /// call. Precedence: explicit provider `claude-cli` → yes; any other explicit
 /// provider → no; otherwise auto (no key in env/keychain AND `claude` installed).
-fn use_claude_cli() -> bool {
+pub(crate) fn use_claude_cli() -> bool {
     match selected_provider().as_str() {
         "claude-cli" => true,
         "" => {
