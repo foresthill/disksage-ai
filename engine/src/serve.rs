@@ -31,6 +31,9 @@ struct ScanState {
     ai_running: bool,
     deep: Option<crate::deep::DeepScan>,
     deep_running: bool,
+    /// Follow-up conversation about the current findings (reset on a new scan).
+    chat: Vec<crate::chat::ChatTurn>,
+    chat_running: bool,
     /// A newer release found by the background update check (None = up to date,
     /// check disabled, offline, or app version unknown).
     update: Option<crate::update::Latest>,
@@ -50,6 +53,8 @@ fn trigger_scan(state: State) {
         s.findings = Some(found);
         s.ai = None; // previous judgments were for the old findings/indices
         s.deep = None; // deep results were for the previous scan
+        s.chat.clear(); // the conversation was about the previous findings
+        s.chat_running = false;
         s.scanning = false;
     });
 }
@@ -92,9 +97,16 @@ fn scan_page(state: &State, deleted: bool) -> (String, bool) {
                     .map(|a| a.judgments.as_slice());
             body.push_str(&crate::findings::findings_html(found, ai_ref));
             body.push_str(&crate::ai_ui::ai_controls(s.ai.as_ref(), s.ai_running));
+            // Follow-up chat about the findings — once an AI backend is available.
+            if ai::available() {
+                body.push_str(&crate::chat_ui::panel_html(&s.chat, s.chat_running));
+            }
             body.push_str(&crate::deep::section_html(s.deep.as_ref(), s.deep_running));
-            // Auto-refresh while a rescan, an AI call, or the Full scan is running.
-            (body, s.scanning || s.ai_running || s.deep_running)
+            // Auto-refresh while a rescan, an AI call, the chat, or Full scan runs.
+            (
+                body,
+                s.scanning || s.ai_running || s.deep_running || s.chat_running,
+            )
         }
         None => {
             body.push_str(t(
@@ -161,6 +173,51 @@ pub fn run(port: u16) -> Result<(), String> {
                     let mut s = st.lock().unwrap();
                     s.ai = Some(result);
                     s.ai_running = false;
+                });
+            }
+            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
+            continue;
+        }
+        // Follow-up chat (opt-in): append the user's message, then answer it off the
+        // request thread (a network / CLI call). The findings context is masked.
+        if path == "/chat" && *req.method() == Method::Post {
+            let mut body = String::new();
+            let _ = req.as_reader().read_to_string(&mut body);
+            let msg = body
+                .split('&')
+                .find_map(|kv| {
+                    let (k, v) = kv.split_once('=')?;
+                    (k == "msg").then(|| percent_decode(v))
+                })
+                .unwrap_or_default();
+            let msg = msg.trim().to_string();
+            let launch = {
+                let mut s = state.lock().unwrap();
+                if msg.is_empty() || s.chat_running || s.findings.is_none() {
+                    None
+                } else {
+                    s.chat.push(crate::chat::ChatTurn {
+                        role: "user".into(),
+                        content: msg,
+                    });
+                    s.chat_running = true;
+                    Some((s.chat.clone(), s.findings.clone().unwrap()))
+                }
+            };
+            if let Some((history, found)) = launch {
+                let st = state.clone();
+                let ja = is_ja();
+                thread::spawn(move || {
+                    let reply =
+                        crate::chat::reply(&history, &found, ja, crate::audit::enabled(false));
+                    let content = crate::chat::format_reply(reply, ja);
+                    let mut s = st.lock().unwrap();
+                    s.chat.push(crate::chat::ChatTurn {
+                        role: "assistant".into(),
+                        content,
+                    });
+                    s.chat_running = false;
                 });
             }
             let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
