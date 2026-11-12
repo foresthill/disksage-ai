@@ -137,8 +137,12 @@ async fn check_update(app: tauri::AppHandle, interactive: bool) {
         }
         Ok(None) => {
             if interactive {
+                let v = env!("CARGO_PKG_VERSION");
                 app.dialog()
-                    .message(t("You're on the latest version.", "最新バージョンです。"))
+                    .message(format!(
+                        "{} (v{v})",
+                        t("You're on the latest version.", "最新バージョンです。")
+                    ))
                     .title("DiskSage")
                     .blocking_show();
             }
