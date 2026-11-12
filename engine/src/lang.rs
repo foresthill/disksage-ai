@@ -1,10 +1,13 @@
-//! UI language for the served pages. Resolved once at serve startup with the
-//! same precedence as the bash CLI, then a tiny `t(en, ja)` picks strings.
+//! UI language for the served pages. Resolved at serve startup with the same
+//! precedence as the bash CLI (and re-resolvable at runtime — see `JA`), then a
+//! tiny `t(en, ja)` picks strings.
 //!
-//! Scope note: this covers the UI *chrome* (nav, headings, buttons, settings).
-//! Finding descriptions/actions still come from the engine's scan in English —
-//! translating those needs an id-keyed catalog (like the bash version has) and
-//! is the remaining i18n step before the desktop should switch to this server.
+//! Scope note: this covers both the UI *chrome* (nav, headings, buttons,
+//! settings) and the scan findings — finding labels/actions are translated via
+//! the `_ja` fields in `patterns/builtin.json` (see `patterns.rs`) and the
+//! `is_ja()` branches in `scan.rs` for the hand-written patterns. The one
+//! remaining limit is that `t()` is a two-language (en/ja) helper, not an
+//! id-keyed multi-locale catalog, so adding a third language is a larger step.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
