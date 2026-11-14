@@ -75,7 +75,11 @@ fn scan_page(state: &State, deleted: bool) -> (String, bool) {
     if deleted {
         body.push_str(&crate::page::trash_banner());
     }
+    // Wrap the bar in a stable container so the idle poller (see
+    // `page::overview_poll_script`) can swap just this fragment in place.
+    body.push_str("<div id='ds-overview'>");
     body.push_str(&crate::page::overview_html());
+    body.push_str("</div>");
     body.push_str(t(
         "<h2 style='font-size:16px;margin:22px 0 8px'>🎯 Findings</h2>",
         "<h2 style='font-size:16px;margin:22px 0 8px'>🎯 検出結果</h2>",
@@ -419,6 +423,14 @@ pub fn run(port: u16) -> Result<(), String> {
             let _ = req.respond(Response::from_string(json.to_string()).with_header(jtype));
             continue;
         }
+        // Live disk-usage fragment: just the overview bar + snapshot note, so the
+        // Scan page can refresh the free-space figure in place (after an
+        // empty-Trash / delete) without reloading or re-running a scan.
+        if path == "/disk-usage" {
+            let _ = req
+                .respond(Response::from_string(crate::page::overview_html()).with_header(ctype()));
+            continue;
+        }
         // Transparency: show exactly the masked metadata the AI would receive.
         if path == "/ai-preview" {
             let findings = {
@@ -433,7 +445,12 @@ pub fn run(port: u16) -> Result<(), String> {
         let html = match path {
             "/" | "/index.html" => {
                 let deleted = reports::query_param(&url, "deleted").is_some();
-                let (body, refresh) = scan_page(&state, deleted);
+                let (mut body, refresh) = scan_page(&state, deleted);
+                // While a scan/AI/Full run is in flight the whole page already
+                // meta-refreshes (updating the bar); only poll when idle.
+                if !refresh {
+                    body.push_str(crate::page::overview_poll_script());
+                }
                 crate::page::shell("scan", t("Scan", "スキャン"), &body, refresh)
             }
             "/trend" => crate::page::shell(
