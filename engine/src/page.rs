@@ -30,8 +30,9 @@ fn sidebar(active: &str) -> String {
     format!(
         "<nav style='position:fixed;left:0;top:0;bottom:0;width:200px;background:#1f2328;\
          color:#fff;padding:18px 14px;box-sizing:border-box;z-index:20;overflow:auto'>\
-         <div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>{}{}{}</nav>",
+         <div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>{}{}{}{}</nav>",
         item("/", "🔍", t("Scan", "スキャン"), "scan"),
+        item("/trend", "📈", t("Trend", "推移"), "trend"),
         item("/reports", "📁", t("Reports", "レポート"), "reports"),
         item("/settings", "⚙️", t("Settings", "設定"), "settings"),
     )
@@ -156,16 +157,41 @@ pub fn overview_html() -> String {
             human(free),
         ));
     }
-    if let Some(n) = df::snapshot_count() {
-        if n > 0 {
+    // Why free space is tight / "shrinks by itself": local APFS snapshots pin
+    // recently-deleted blocks. Call out the OS-update snapshot specifically — it's
+    // the hidden holder that releases itself once the macOS update completes.
+    if let Some(s) = df::snapshots() {
+        if s.total > 0 {
             let msg = if is_ja() {
-                format!("ローカルスナップショット: {n} 個 — 空きを保持している可能性（削除済みファイルを生かし続けます）。")
+                let mut m = format!(
+                    "⚠️ 空きを握っている可能性: ローカルスナップショット <b>{}</b> 個。各スナップショットは削除済みブロックを保持するため、<b>何もしなくても空きが減る</b>主因になります。",
+                    s.total
+                );
+                if s.os_update > 0 {
+                    m.push_str(&format!(
+                        " うち <b>{}</b> 個は OS アップデート準備用（<code>com.apple.os.update-*</code>）＝<b>更新を完了すると自動的に解放</b>されます（システム設定 → 一般 → ソフトウェアアップデート）。",
+                        s.os_update
+                    ));
+                }
+                m.push_str(" ファイルを消しても空きが戻らない時は、まず<b>ゴミ箱を空に</b>。");
+                m
             } else {
-                format!("Local snapshots: {n} — these can hold space (each keeps recently-deleted files alive).")
+                let mut m = format!(
+                    "⚠️ What's holding your free space: <b>{}</b> local snapshot(s). Each pins recently-deleted blocks, so free space can <b>shrink on its own</b>.",
+                    s.total
+                );
+                if s.os_update > 0 {
+                    m.push_str(&format!(
+                        " <b>{}</b> of them are macOS-update staging (<code>com.apple.os.update-*</code>) and <b>release automatically once the update finishes</b> (System Settings → General → Software Update).",
+                        s.os_update
+                    ));
+                }
+                m.push_str(" If deleting files doesn't free space, <b>empty the Trash</b> first.");
+                m
             };
             parts.push_str(&format!(
                 "<div style='margin-top:14px;padding:12px 14px;background:#fff8c5;border:1px solid \
-                 #eac54f;border-radius:8px;font-size:13px'>{msg}</div>"
+                 #eac54f;border-radius:8px;font-size:13px;line-height:1.5'>{msg}</div>"
             ));
         }
     }

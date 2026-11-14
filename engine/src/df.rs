@@ -33,22 +33,53 @@ pub fn containers() -> BTreeMap<u64, Vec<Volume>> {
     groups
 }
 
-/// Number of local APFS snapshots (the usual reason free space "shrinks by
-/// itself"). macOS only; `None` elsewhere until those platforms are supported.
-pub fn snapshot_count() -> Option<usize> {
+/// A breakdown of local APFS snapshots — the usual reason free space "shrinks by
+/// itself", since each one pins recently-deleted blocks until it is released.
+#[derive(Default)]
+pub struct Snapshots {
+    pub total: usize,
+    /// `com.apple.os.update-*` — staged while a macOS update is pending; these
+    /// clear automatically once the update finishes.
+    pub os_update: usize,
+}
+
+/// Local APFS snapshots on "/". Uses `diskutil apfs listSnapshots`, which — unlike
+/// `tmutil listlocalsnapshots` — also reports the `com.apple.os.update-*` snapshot
+/// that OS-update staging leaves behind. That one is a common *hidden* space
+/// holder: it can pin many GB that freeing files won't return until the update
+/// completes. macOS only; `None` elsewhere or if the command isn't available.
+pub fn snapshots() -> Option<Snapshots> {
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("tmutil")
-            .args(["listlocalsnapshots", "/"])
+        let out = std::process::Command::new("diskutil")
+            .args(["apfs", "listSnapshots", "/"])
             .output()
             .ok()?;
+        if !out.status.success() {
+            return None;
+        }
         let text = String::from_utf8_lossy(&out.stdout);
-        Some(text.lines().filter(|l| l.contains("com.apple")).count())
+        let mut s = Snapshots::default();
+        for line in text.lines() {
+            if let Some(name) = line.trim().strip_prefix("Name:") {
+                s.total += 1;
+                if name.contains("os.update") {
+                    s.os_update += 1;
+                }
+            }
+        }
+        Some(s)
     }
     #[cfg(not(target_os = "macos"))]
     {
         None
     }
+}
+
+/// Number of local APFS snapshots (used by the `df` CLI). Delegates to
+/// `snapshots()` so it benefits from the diskutil-based detection.
+pub fn snapshot_count() -> Option<usize> {
+    snapshots().map(|s| s.total)
 }
 
 /// A container's label: the startup disk if it holds "/", else its biggest volume.

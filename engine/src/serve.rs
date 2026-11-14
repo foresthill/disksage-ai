@@ -49,6 +49,8 @@ fn trigger_scan(state: State) {
         if let Err(e) = crate::report::save(&found) {
             eprintln!("DiskSage: could not save report snapshot: {e}");
         }
+        // Record one free-space point for the /trend chart (best-effort).
+        crate::trend::record();
         let mut s = state.lock().unwrap();
         s.findings = Some(found);
         s.ai = None; // previous judgments were for the old findings/indices
@@ -434,6 +436,12 @@ pub fn run(port: u16) -> Result<(), String> {
                 let (body, refresh) = scan_page(&state, deleted);
                 crate::page::shell("scan", t("Scan", "スキャン"), &body, refresh)
             }
+            "/trend" => crate::page::shell(
+                "trend",
+                t("Trend", "推移"),
+                &crate::trend::trend_html(),
+                false,
+            ),
             "/reports" => crate::page::shell(
                 "reports",
                 t("Reports", "レポート"),
