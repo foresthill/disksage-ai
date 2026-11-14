@@ -117,6 +117,23 @@ pub fn trash_banner() -> String {
     )
 }
 
+/// A tiny poller that keeps the disk-usage bar live *without* reloading the whole
+/// page or re-running a scan. It refetches only the overview fragment
+/// (`/disk-usage`) every few seconds and swaps it into `#ds-overview`, so after
+/// you empty the Trash or delete a big folder, the free-space figure actually
+/// moves instead of sitting at the number it showed when the page first opened.
+///
+/// Only emitted on the idle Scan page: while a scan/AI/Full run is in flight the
+/// page already meta-refreshes every 2s (which updates the bar too), so polling
+/// then would just duplicate work. Skips the fetch when the tab is hidden, and
+/// guards against stacking intervals across navigations.
+pub fn overview_poll_script() -> &'static str {
+    "<script>(function(){if(window.__dsOv)return;window.__dsOv=setInterval(function(){\
+     if(document.hidden)return;fetch('/disk-usage').then(function(r){return r.ok?r.text():null;})\
+     .then(function(h){if(h==null)return;var el=document.getElementById('ds-overview');\
+     if(el)el.innerHTML=h;}).catch(function(){});},5000);})();</script>"
+}
+
 /// The disk-usage overview: one bar per APFS container + a snapshot warning.
 pub fn overview_html() -> String {
     let heading = t(
