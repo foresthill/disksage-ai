@@ -267,6 +267,9 @@ Known patterns bundled in the initial release:
 | Apple Mail data | `~/Library/Mail` — mostly re-syncable IMAP mail | 🔵 Low |
 | Downloads folder | `~/Downloads` — old installers/files to review | 🔵 Low |
 | Claude workspace VM | `~/Library/Application Support/Claude/vm_bundles` — AI tool runtime; manage via Claude's Storage | ℹ️ Info |
+| Android SDK | `~/Library/Android/sdk` (or `~/Android/Sdk`) — trim unused platforms/images via SDK Manager (>5GB) | 🔵 Low |
+| Android emulator images (AVDs) | `~/.android/avd` — each virtual device is large; delete unused in Device Manager (>3GB) | 🟡 Medium |
+| Gradle build cache | `~/.gradle` — shared build cache, rebuilds on next build (>2GB) | 🟢 Safe |
 | Flow-type (>500MB, <30d) | Files that grew recently — identify ongoing patterns | (report) |
 
 The simple size-threshold patterns are declarative JSON in [`patterns/builtin.json`](./patterns/) — add your own there (PR) or in `~/.disksage/patterns.json`, no rebuild needed. See [patterns/README.md](./patterns/README.md). Community contributions welcome.
