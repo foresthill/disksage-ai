@@ -32,6 +32,7 @@ pub mod serve;
 pub mod settings;
 pub mod top;
 pub mod trash;
+pub mod trend;
 pub mod update;
 pub mod util;
 pub mod walk;
