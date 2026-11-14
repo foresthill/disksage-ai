@@ -128,5 +128,35 @@
     "label_ja": "Claude Code / Desktop のワークスペース VM",
     "action_en": "The Claude desktop app's workspace VM (rootfs + session data). Managed by Claude — reclaim it from Claude's Settings → Storage, don't delete these files by hand (that resets your workspaces).",
     "action_ja": "Claude デスクトップのワークスペース VM（rootfs＋セッションデータ）。Claude が管理。整理は Claude の 設定 → ストレージ から。手でファイルを消すとワークスペースが初期化されます。"
+  },
+  {
+    "id": "android_sdk",
+    "paths": ["~/Library/Android/sdk", "~/Android/Sdk"],
+    "threshold_gib": 5,
+    "severity": "low",
+    "label_en": "Android SDK",
+    "label_ja": "Android SDK",
+    "action_en": "Needed for Android development/release. Don't delete the whole folder — trim unused SDK platforms and system images via Android Studio → Settings → Languages & Frameworks → Android SDK (SDK Manager).",
+    "action_ja": "Android の開発/リリースに必要。フォルダ丸ごとは消さず、使っていない SDK プラットフォームやシステムイメージを Android Studio → 設定 → 言語とフレームワーク → Android SDK（SDK Manager）で整理を。"
+  },
+  {
+    "id": "android_avd",
+    "path": "~/.android/avd",
+    "threshold_gib": 3,
+    "severity": "medium",
+    "label_en": "Android emulator images (AVDs)",
+    "label_ja": "Android エミュレータ (AVD)",
+    "action_en": "Each virtual device is large. Delete unused ones in Android Studio → Device Manager — deleting an AVD loses that emulator's state. Keep the ones you test releases on.",
+    "action_ja": "仮想デバイスは1台ずつ大きい。使っていないものを Android Studio → Device Manager で削除（削除するとそのエミュレータの状態は消えます）。リリース検証に使うものは残す。"
+  },
+  {
+    "id": "gradle_cache",
+    "path": "~/.gradle",
+    "threshold_gib": 2,
+    "severity": "safe",
+    "label_en": "Gradle build cache",
+    "label_ja": "Gradle ビルドキャッシュ",
+    "action_en": "Shared build cache (Android and other Gradle/Kotlin/Java projects). Safe to clear — it re-downloads and rebuilds on the next build. Run './gradlew --stop' first, or leave it if you build often.",
+    "action_ja": "共有ビルドキャッシュ（Android や他の Gradle/Kotlin/Java プロジェクトも使用）。消しても安全＝次ビルドで再DL・再生成されます。先に『./gradlew --stop』を。頻繁にビルドするなら残しても可。"
   }
 ]
