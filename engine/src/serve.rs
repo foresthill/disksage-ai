@@ -341,7 +341,11 @@ pub fn run(port: u16) -> Result<(), String> {
         if path == "/settings" && *req.method() == Method::Post {
             let mut body = String::new();
             let _ = req.as_reader().read_to_string(&mut body);
-            settings::handle_post(&body);
+            // A language change regenerates findings: their text is baked at scan
+            // time, so the current results stay in the old language until a rescan.
+            if settings::handle_post(&body) {
+                trigger_scan(state.clone());
+            }
             let loc = Header::from_bytes(&b"Location"[..], &b"/settings?saved=1"[..]).expect("hdr");
             let _ = req.respond(Response::empty(303).with_header(loc));
             continue;
