@@ -81,28 +81,32 @@ pub fn form_value<'a>(body: &'a str, key: &str) -> Option<&'a str> {
 /// Apply a POST from the Settings screen. Two independent forms post here: the
 /// language radios, and the AI-key form. The API key is written to the OS
 /// keychain only — never to the config file.
-pub fn handle_post(body: &str) {
+/// Returns `true` when the resolved report language actually changed, so the
+/// caller can regenerate the findings (their text is baked at scan time).
+pub fn handle_post(body: &str) -> bool {
     // Language form (its radio is always present when that form is submitted).
     if let Some(val) = form_value(body, "lang") {
         if matches!(val, "" | "ja" | "en") {
+            let was_ja = crate::lang::is_ja();
             write_lang(val);
             crate::lang::refresh();
+            return crate::lang::is_ja() != was_ja;
         }
-        return;
+        return false;
     }
     // Update-check form (a checkbox: present only when ticked; default on, so
     // we store `off` only when it comes back unchecked).
     if form_value(body, "update_action") == Some("set") {
         let on = form_value(body, "update_check").is_some();
         write_key("update_check", if on { "" } else { "off" });
-        return;
+        return false;
     }
     // AI audit-log toggle (a checkbox: present only when ticked). Default off, so
     // we store `on` only when it comes back checked.
     if form_value(body, "audit_action") == Some("set") {
         let on = form_value(body, "ai_audit_log").is_some();
         write_key("ai_audit_log", if on { "on" } else { "" });
-        return;
+        return false;
     }
     // AI-provider selector (which backend to USE).
     if form_value(body, "ai_provider_action") == Some("set") {
@@ -110,7 +114,7 @@ pub fn handle_post(body: &str) {
         if matches!(p, "" | "anthropic" | "openrouter" | "ollama" | "claude-cli") {
             write_key("ai_provider", p);
         }
-        return;
+        return false;
     }
     // Ollama connection form: base URL (port-forward friendly) + chosen model.
     if form_value(body, "ai_action") == Some("ollama_save") {
@@ -122,7 +126,7 @@ pub fn handle_post(body: &str) {
             let m = percent_decode(m);
             write_key("ollama_model", m.trim());
         }
-        return;
+        return false;
     }
     // AI-key form.
     match form_value(body, "ai_action") {
@@ -146,6 +150,7 @@ pub fn handle_post(body: &str) {
         }
         _ => {}
     }
+    false
 }
 
 /// The AI (BYOK) key section: a masked field to store a key in the OS keychain,
