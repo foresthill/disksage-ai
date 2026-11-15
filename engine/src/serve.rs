@@ -96,6 +96,11 @@ fn scan_page(state: &State, deleted: bool) -> (String, bool) {
                     "<div style='margin:8px 0;padding:10px 12px;background:#fff8c5;border:1px solid \
                      #eac54f;border-radius:8px;font-size:13px'>🔄 再スキャン中… 結果は自動で更新されます。</div>",
                 ));
+            } else {
+                // Not scanning: offer a manual quick re-scan. This is the only
+                // control that records a Trend point (Full scan doesn't), so it's
+                // how you get the 2nd point to draw a line on /trend.
+                body.push_str(&crate::page::rescan_button());
             }
             let ai_ref =
                 s.ai.as_ref()
@@ -225,6 +230,21 @@ pub fn run(port: u16) -> Result<(), String> {
                     });
                     s.chat_running = false;
                 });
+            }
+            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
+            continue;
+        }
+        // Manual quick re-scan: re-run the quick scan (which records a /trend
+        // point via trigger_scan → trend::record), then redirect to /. Guarded so
+        // a double-submit doesn't stack scans. Same shape as /fullscan.
+        if path == "/rescan" && *req.method() == Method::Post {
+            let go = {
+                let s = state.lock().unwrap();
+                !s.scanning
+            };
+            if go {
+                trigger_scan(state.clone());
             }
             let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
             let _ = req.respond(Response::empty(303).with_header(loc));
