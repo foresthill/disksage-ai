@@ -117,6 +117,24 @@ pub fn trash_banner() -> String {
     )
 }
 
+/// The manual "run a quick scan again" button, shown next to the Findings
+/// heading. Each quick scan records one free-space point for the /trend chart, so
+/// this is how you get a second (and third…) point to draw a line — the Full-scan
+/// button doesn't, it only digs into folders. POSTs to `/rescan`.
+pub fn rescan_button() -> String {
+    let label = t("🔄 Re-scan", "🔄 もう一度スキャン");
+    let note = t(
+        "Runs a quick scan again and records a free-space point for the Trend chart.",
+        "クイックスキャンをやり直し、推移グラフ用の空き容量ポイントを1つ記録します。",
+    );
+    format!(
+        "<form method='post' action='/rescan' style='margin:4px 0 14px'>\
+         <button type='submit' style='background:#0969da;color:#fff;border:0;border-radius:8px;\
+         padding:8px 16px;font-size:14px;cursor:pointer'>{label}</button>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div></form>"
+    )
+}
+
 /// A tiny poller that keeps the disk-usage bar live *without* reloading the whole
 /// page or re-running a scan. It refetches only the overview fragment
 /// (`/disk-usage`) every few seconds and swaps it into `#ds-overview`, so after
