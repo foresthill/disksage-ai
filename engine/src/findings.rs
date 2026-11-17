@@ -10,6 +10,14 @@ use crate::scan::Finding;
 use crate::trash;
 use crate::util::esc;
 
+/// Lay the finding cards out in a responsive 2-column grid (collapses to 1 column
+/// on a narrow window). `minmax(0,1fr)` + `overflow-wrap:anywhere` keep a long
+/// path from blowing the column width out. Emitted once with the list.
+const CARDS_STYLE: &str = "<style>\
+.ds-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}\
+.ds-cards>div{overflow-wrap:anywhere}\
+@media(max-width:720px){.ds-cards{grid-template-columns:1fr}}</style>";
+
 fn sev_rank(s: &str) -> u8 {
     match s {
         "high" => 0,
@@ -130,7 +138,7 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
         };
         out.push_str(&format!(
             "<div style='border-left:4px solid {c};background:#fff;border:1px solid #d0d7de;\
-             border-radius:8px;padding:12px 14px;margin:10px 0'>\
+             border-radius:8px;padding:12px 14px;margin:0'>\
              <div>{checkbox}<span style='background:{c};color:#fff;font-size:11px;padding:2px 8px;\
              border-radius:10px'>{}</span></div>\
              <div style='margin-top:6px'>{}</div>\
@@ -164,14 +172,16 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
              b.style.cursor=c===0?'not-allowed':'pointer';}\
              f.addEventListener('change',u);u();})();";
         format!(
-            "<form method='post' action='/delete' onsubmit='return confirm(\"{confirm}\")'>\
-             {out}<button type='submit' class='dsdelbtn' disabled style='margin-top:8px;\
+            "{CARDS_STYLE}\
+             <form method='post' action='/delete' onsubmit='return confirm(\"{confirm}\")'>\
+             <div class='ds-cards'>{out}</div>\
+             <button type='submit' class='dsdelbtn' disabled style='margin-top:12px;\
              background:#cf222e;color:#fff;border:0;border-radius:8px;padding:9px 18px;font-size:14px;\
              cursor:not-allowed;opacity:.5'>{button} (<span class='dsdeln'>0</span>)</button>\
              <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>\
              <script>{script}</script></form>"
         )
     } else {
-        out
+        format!("{CARDS_STYLE}<div class='ds-cards'>{out}</div>")
     }
 }
