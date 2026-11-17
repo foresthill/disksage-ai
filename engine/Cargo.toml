@@ -33,6 +33,10 @@ sys-locale = "0.3"
 # pure-Rust — no system libdbus/OpenSSL needed to build (sync-secret-service pulls
 # libdbus-sys, which fails on a bare CI runner).
 keyring = { version = "3", features = ["apple-native", "windows-native", "async-secret-service", "crypto-rust", "async-io"] }
+# Render AI-generated Markdown (chat replies) to HTML. Pure Rust, cross-platform.
+# We strip raw HTML + images from the output (see md.rs) so an AI reply can't
+# inject <script>/event-handlers/remote images into the local webview.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [profile.release]
 strip = true
