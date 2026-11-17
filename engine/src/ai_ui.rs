@@ -20,12 +20,14 @@ fn ai_button(rerun: bool) -> String {
         "🔒 送信される内容を確認",
     );
     format!(
-        "<form method='post' action='/ai' style='margin-top:12px'>\
+        "{lamp}\
+         <form method='post' action='/ai' style='margin-top:4px'>\
          <button type='submit' style='background:#8250df;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{label}</button>\
          <div style='color:#57606a;font-size:12px;margin-top:6px'>{note} \
          <a href='/ai-preview'>{preview}</a></div></form>{}",
         audit_note(),
+        lamp = crate::ai_status::lamp_html(),
     )
 }
 
@@ -93,7 +95,8 @@ pub fn ai_controls(ai: Option<&Result<Analysis, String>>, ai_running: bool) -> S
     }
     if !ai::available() {
         return format!(
-            "<div style='margin-top:12px;color:#57606a;font-size:13px'>{}</div>",
+            "<div style='margin-top:12px'>{}</div><div style='color:#57606a;font-size:13px'>{}</div>",
+            crate::ai_status::lamp_html(),
             t(
                 "AI judgment needs either a BYOK key (ANTHROPIC_API_KEY / OPENROUTER_API_KEY) or Claude Code (the `claude` CLI) installed and logged in.",
                 "AI判定には BYOK キー（ANTHROPIC_API_KEY / OPENROUTER_API_KEY）か、Claude Code（`claude` コマンド）のインストール＋ログインが必要です。",

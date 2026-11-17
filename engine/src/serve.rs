@@ -149,6 +149,13 @@ pub fn run(port: u16) -> Result<(), String> {
     eprintln!("DiskSage engine serving on http://127.0.0.1:{port}  (Ctrl-C to stop)");
     let ctype =
         || Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr");
+    let jtype = || {
+        Header::from_bytes(
+            &b"Content-Type"[..],
+            &b"application/json; charset=utf-8"[..],
+        )
+        .expect("hdr")
+    };
     for mut req in server.incoming_requests() {
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("/");
@@ -419,12 +426,15 @@ pub fn run(port: u16) -> Result<(), String> {
                 Ok(models) => serde_json::json!({"ok": true, "models": models}),
                 Err(e) => serde_json::json!({"ok": false, "error": e}),
             };
-            let jtype = Header::from_bytes(
-                &b"Content-Type"[..],
-                &b"application/json; charset=utf-8"[..],
-            )
-            .expect("hdr");
-            let _ = req.respond(Response::from_string(json.to_string()).with_header(jtype));
+            let _ = req.respond(Response::from_string(json.to_string()).with_header(jtype()));
+            continue;
+        }
+        // AI readiness lamp (🟢/🟡/🔴): the Scan page fetches this async so a slow
+        // Ollama probe never blocks the page. Only Ollama is actually probed; BYOK
+        // / Claude Code report "configured" (see ai_status).
+        if path == "/ai-status" {
+            let _ =
+                req.respond(Response::from_string(crate::ai_status::json()).with_header(jtype()));
             continue;
         }
         // Live disk-usage fragment: just the overview bar + snapshot note, so the

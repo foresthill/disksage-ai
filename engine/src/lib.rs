@@ -7,6 +7,7 @@
 
 pub mod ai;
 pub mod ai_preview;
+pub mod ai_status;
 pub mod ai_ui;
 pub mod audit;
 pub mod breakdown;

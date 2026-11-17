@@ -287,7 +287,7 @@ fn ollama_section() -> String {
     let (status, options) = match crate::ollama::list_models() {
         Ok(models) => (
             format!(
-                "<span style='color:#1a7f37'>✅ {} · {} {}</span>",
+                "<span style='color:#1a7f37'>🟢 {} · {} {}</span>",
                 t("Connected", "接続OK"),
                 models.len(),
                 t("models", "モデル"),
@@ -296,7 +296,7 @@ fn ollama_section() -> String {
         ),
         Err(e) => (
             format!(
-                "<span style='color:#cf222e'>⚠️ {}: {}</span>",
+                "<span style='color:#cf222e'>🔴 {}: {}</span>",
                 t("Not reachable", "接続できません"),
                 esc(&e),
             ),
@@ -318,9 +318,9 @@ async function dsOllamaTest(){
    var cur=s.value;s.innerHTML='';
    var o0=document.createElement('option');o0.value='';o0.textContent='__CHOOSE__';s.appendChild(o0);
    j.models.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m;if(m===cur)o.selected=true;s.appendChild(o);});
-   dsStat(st,'#1a7f37','✅ '+j.models.length+' __MODELS__');
-  }else{dsStat(st,'#cf222e','⚠️ '+(j.error||'error'));}
- }catch(e){dsStat(st,'#cf222e','⚠️ '+e);}
+   dsStat(st,'#1a7f37','🟢 '+j.models.length+' __MODELS__');
+  }else{dsStat(st,'#cf222e','🔴 '+(j.error||'error'));}
+ }catch(e){dsStat(st,'#cf222e','🔴 '+e);}
 }
 </script>"#
         .replace("__TESTING__", t("Testing…", "テスト中…"))
