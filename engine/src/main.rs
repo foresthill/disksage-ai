@@ -8,7 +8,7 @@
 
 use disksage_engine::df::{self, Volume};
 use disksage_engine::util::human;
-use disksage_engine::{ai, audit, lang, mask, scan, serve};
+use disksage_engine::{ai, audit, lang, mask, scan, serve, snapshots};
 
 /// `ai [--yes] [--ai-log]` — scan, show the masked metadata that WOULD be sent,
 /// then (only with --yes and a BYOK key) send it to Claude and print per-finding
@@ -160,6 +160,7 @@ fn main() {
             }
         }
         Some("scan") => scan::run(json),
+        Some("snapshots") => snapshots::run(json),
         Some("ai") => cmd_ai(
             args.iter().any(|a| a == "--yes"),
             args.iter().any(|a| a == "--ai-log"),
@@ -181,7 +182,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df [--json]\n  disksage-engine scan [--json]\n  disksage-engine ai   [--yes] [--ai-log]\n  disksage-engine serve [--port N]\n  disksage-engine --version\n\nDISKSAGE_AI_LOG=1 also enables the AI audit log ($DISKSAGE_HOME/ai-logs/)."
+                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df        [--json]\n  disksage-engine scan      [--json]\n  disksage-engine snapshots [--json]\n  disksage-engine ai        [--yes] [--ai-log]\n  disksage-engine serve     [--port N]\n  disksage-engine --version\n\nDISKSAGE_AI_LOG=1 also enables the AI audit log ($DISKSAGE_HOME/ai-logs/)."
             );
             std::process::exit(2);
         }

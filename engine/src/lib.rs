@@ -32,6 +32,7 @@ pub mod scan;
 pub mod secret;
 pub mod serve;
 pub mod settings;
+pub mod snapshots;
 pub mod top;
 pub mod trash;
 pub mod trend;
