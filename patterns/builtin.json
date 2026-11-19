@@ -126,8 +126,8 @@
     "severity": "info",
     "label_en": "Claude Code / Desktop workspace VM",
     "label_ja": "Claude Code / Desktop のワークスペース VM",
-    "action_en": "The Claude desktop app's workspace VM (rootfs + session data). Managed by Claude — reclaim it from Claude's Settings → Storage, don't delete these files by hand (that resets your workspaces).",
-    "action_ja": "Claude デスクトップのワークスペース VM（rootfs＋セッションデータ）。Claude が管理。整理は Claude の 設定 → ストレージ から。手でファイルを消すとワークスペースが初期化されます。"
+    "action_en": "The Claude desktop app's VM disk. rootfs.img grows unbounded and is never auto-reclaimed (known bug: anthropics/claude-code#65577); there is NO in-app cleanup setting. To reclaim: quit Claude, then delete only rootfs.img (it rebuilds from rootfs.img.zst). Keep sessiondata.img. Unofficial community workaround.",
+    "action_ja": "Claude デスクトップの VM ディスク。rootfs.img が無制限に育ち自動回収されない既知バグ（anthropics/claude-code#65577）。アプリ内の整理機能は存在しない。回収は Claude を終了してから rootfs.img だけ削除（rootfs.img.zst から再構築される）。sessiondata.img は残す。非公式の回避策。"
   },
   {
     "id": "android_sdk",
