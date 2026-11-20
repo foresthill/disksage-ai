@@ -126,8 +126,8 @@
     "severity": "info",
     "label_en": "Claude Code / Desktop workspace VM",
     "label_ja": "Claude Code / Desktop のワークスペース VM",
-    "action_en": "The Claude desktop app's VM disk. rootfs.img grows unbounded and is never auto-reclaimed (known bug: anthropics/claude-code#65577); there is NO in-app cleanup setting. To reclaim: quit Claude, then delete only rootfs.img (it rebuilds from rootfs.img.zst). Keep sessiondata.img. Unofficial community workaround.",
-    "action_ja": "Claude デスクトップの VM ディスク。rootfs.img が無制限に育ち自動回収されない既知バグ（anthropics/claude-code#65577）。アプリ内の整理機能は存在しない。回収は Claude を終了してから rootfs.img だけ削除（rootfs.img.zst から再構築される）。sessiondata.img は残す。非公式の回避策。"
+    "action_en": "Claude's VM disk. Known to grow unbounded and not auto-reclaimed (known bug: anthropics/claude-code#65577); there is no official cleanup. DiskSage won't touch it. An unofficial community workaround exists — see the issue, and use it only at your own risk.",
+    "action_ja": "Claude の VM ディスク。無制限に育ち自動回収されない既知バグ（anthropics/claude-code#65577）。公式の整理機能は無い。DiskSage は触りません。非公式のコミュニティ回避策は Issue を参照（自己責任で）。"
   },
   {
     "id": "android_sdk",
