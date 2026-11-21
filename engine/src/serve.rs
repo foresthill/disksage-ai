@@ -49,8 +49,9 @@ fn trigger_scan(state: State) {
         if let Err(e) = crate::report::save(&found) {
             eprintln!("DiskSage: could not save report snapshot: {e}");
         }
-        // Record one free-space point for the /trend chart (best-effort).
-        crate::trend::record();
+        // Record one free-space point for the /trend chart, marked as a scan
+        // point (a special moment, emphasised on the chart). Best-effort.
+        crate::trend::record(true);
         let mut s = state.lock().unwrap();
         s.findings = Some(found);
         s.ai = None; // previous judgments were for the old findings/indices
@@ -59,6 +60,31 @@ fn trigger_scan(state: State) {
         s.chat_running = false;
         s.scanning = false;
     });
+}
+
+/// Background loop for the periodic trend sampler ("定点観測"). Wakes once a
+/// minute and records a free-space point once `interval_minutes()` have elapsed
+/// since the last one. Re-reading the config each tick means a Settings change
+/// applies within a minute with no restart; when sampling is "off" it just waits.
+/// The initial scan already records the first point, so the first periodic sample
+/// lands one interval later (no duplicate at startup).
+fn sampler_loop() {
+    let tick = std::time::Duration::from_secs(60);
+    let mut elapsed: u64 = 0; // minutes since the last recorded point
+    loop {
+        thread::sleep(tick);
+        match crate::trend::interval_minutes() {
+            // Disabled: reset so that re-enabling waits a full fresh interval.
+            None => elapsed = 0,
+            Some(interval) => {
+                elapsed += 1;
+                if elapsed >= interval {
+                    crate::trend::record(false);
+                    elapsed = 0;
+                }
+            }
+        }
+    }
 }
 
 /// The Scan page: overview (instant) + findings (or a scanning banner). Returns
@@ -151,6 +177,12 @@ pub fn run(port: u16) -> Result<(), String> {
             }
         });
     }
+    // Periodic free-space sampler ("定点観測"), off the request path: while the
+    // app is running it appends a trend point every `trend_interval` minutes, so
+    // the chart shows what happens between scans (e.g. space reclaimed overnight).
+    // Config is re-read each tick, so changing the interval/retention in Settings
+    // takes effect without a restart; "off" just skips recording.
+    thread::spawn(sampler_loop);
     eprintln!("DiskSage engine serving on http://127.0.0.1:{port}  (Ctrl-C to stop)");
     let ctype =
         || Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).expect("hdr");

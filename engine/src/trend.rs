@@ -7,14 +7,22 @@
 use std::fs;
 use std::path::PathBuf;
 
-use chrono::Local;
+use chrono::{Duration, Local, NaiveDateTime};
 
 use crate::df;
 use crate::lang::{is_ja, t};
 use crate::util::{esc, home_dir, human};
 
-/// Keep the file small and bounded — this is a trend, not an audit log.
-const MAX_POINTS: usize = 500;
+/// Absolute safety cap on stored points, independent of retention — bounds the
+/// file even at a fine interval with "forever" retention (100k lines ≈ a few MB).
+/// Normal pruning is by age (see `retention_days`); this is just a backstop.
+const MAX_POINTS: usize = 100_000;
+
+/// Default periodic-sampling interval (minutes) when the config key is unset.
+const DEFAULT_INTERVAL_MIN: u64 = 30;
+
+/// Default retention (days) when the config key is unset — the "21-day rule".
+const DEFAULT_RETENTION_DAYS: u64 = 21;
 
 fn history_path() -> PathBuf {
     let home = std::env::var_os("DISKSAGE_HOME")
@@ -22,6 +30,29 @@ fn history_path() -> PathBuf {
         .or_else(|| home_dir().map(|h| h.join(".disksage")))
         .unwrap_or_default();
     home.join("history.tsv")
+}
+
+/// How often the background sampler should record a point, in minutes.
+/// Reads config `trend_interval`: unset → default (30), "off" → None (disabled),
+/// "15"/"30"/"60" (or any positive integer) → that many minutes.
+pub fn interval_minutes() -> Option<u64> {
+    match crate::settings::read_key("trend_interval").as_str() {
+        "" => Some(DEFAULT_INTERVAL_MIN),
+        "off" => None,
+        other => other.parse::<u64>().ok().filter(|m| *m > 0),
+    }
+}
+
+/// How far back to keep history, in days. Reads config `trend_retention`: unset →
+/// default (21), "forever" → None (keep everything, bounded only by `MAX_POINTS`),
+/// a positive integer → that many days. The interval sets *resolution*; this sets
+/// *how far back you can look* — the two are independent.
+pub fn retention_days() -> Option<u64> {
+    match crate::settings::read_key("trend_retention").as_str() {
+        "" => Some(DEFAULT_RETENTION_DAYS),
+        "forever" => None,
+        other => other.parse::<u64>().ok().filter(|d| *d > 0),
+    }
 }
 
 /// The startup container's (free, total) right now — the number people watch.
@@ -40,15 +71,18 @@ fn startup_free_total() -> (u64, u64) {
     (0, 0)
 }
 
-/// Append one data point (timestamp, free, total). Best-effort: a read-only HOME
-/// must never break a scan, so every error is swallowed. Caps the file at
-/// `MAX_POINTS` lines (oldest dropped).
-pub fn record() {
+/// Append one data point (timestamp, free, total, kind). `scan=true` marks a
+/// point taken because the user ran a scan (a special moment, shown emphasised on
+/// the chart); `scan=false` is a routine periodic sample from the background
+/// watcher. Best-effort: a read-only HOME must never break a scan, so every error
+/// is swallowed. Caps the file at `MAX_POINTS` lines (oldest dropped).
+pub fn record(scan: bool) {
     let (free, total) = startup_free_total();
     if total == 0 {
         return;
     }
     let ts = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let kind = if scan { "scan" } else { "auto" };
     let path = history_path();
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
@@ -56,7 +90,17 @@ pub fn record() {
     let mut lines: Vec<String> = fs::read_to_string(&path)
         .map(|s| s.lines().map(str::to_string).collect())
         .unwrap_or_default();
-    lines.push(format!("{ts}\t{free}\t{total}"));
+    lines.push(format!("{ts}\t{free}\t{total}\t{kind}"));
+    // Primary pruning is by age (retention). A point whose timestamp can't be
+    // parsed is kept (never drop data on a parse hiccup).
+    if let Some(days) = retention_days() {
+        let cutoff = Local::now().naive_local() - Duration::days(days as i64);
+        lines.retain(|l| match l.split('\t').next().and_then(parse_ts) {
+            Some(t) => t >= cutoff,
+            None => true,
+        });
+    }
+    // Hard safety backstop regardless of retention.
     let n = lines.len();
     if n > MAX_POINTS {
         lines.drain(0..n - MAX_POINTS);
@@ -64,9 +108,15 @@ pub fn record() {
     let _ = fs::write(&path, lines.join("\n") + "\n");
 }
 
+/// Parse a stored timestamp (`%Y-%m-%d %H:%M:%S`, local time) for age pruning.
+fn parse_ts(s: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok()
+}
+
 struct Point {
     ts: String,
     free: u64,
+    scan: bool,
 }
 
 fn load() -> Vec<Point> {
@@ -75,14 +125,17 @@ fn load() -> Vec<Point> {
         .unwrap_or_default()
 }
 
-// The TSV is `timestamp\tfree\ttotal`; `total` is recorded for future use but the
-// chart only needs free, so it's parsed-through (validated) and dropped.
+// The TSV is `timestamp\tfree\ttotal[\tkind]`; `total` is recorded for future use
+// but the chart only needs free, so it's parsed-through (validated) and dropped.
+// The 4th `kind` column is optional: legacy 3-column lines were all written at
+// scan time, so a missing kind is treated as `scan`.
 fn parse_line(l: &str) -> Option<Point> {
     let mut it = l.split('\t');
     let ts = it.next()?.to_string();
     let free = it.next()?.parse().ok()?;
     it.next()?.parse::<u64>().ok()?; // total — validated, unused
-    Some(Point { ts, free })
+    let scan = !matches!(it.next(), Some("auto"));
+    Some(Point { ts, free, scan })
 }
 
 /// The `/trend` page body: a free-space line chart over time, plus the latest
@@ -93,8 +146,8 @@ pub fn trend_html() -> String {
          <div style='color:#57606a;font-size:13px;margin-bottom:16px'>{}</div>",
         t("📈 Free-space trend", "📈 空き容量の推移"),
         t(
-            "One point is recorded each scan. Watch for a steady fall (something is growing) vs a saw-tooth (snapshots/Trash holding space, then released).",
-            "各スキャンで1点を記録します。右肩下がり＝何かが増え続けている／ギザギザ＝スナップショットやゴミ箱が一時的に空きを握り、解放される波です。"
+            "Points are sampled periodically in the background (while DiskSage is running), plus a special ◆ point each time you scan. Watch for a steady fall (something is growing) vs a saw-tooth (snapshots/Trash holding space, then released — e.g. space freed overnight).",
+            "DiskSage 常駐中はバックグラウンドで定期的に点を記録し、スキャンした時はその瞬間を ◆ で特別表示します。右肩下がり＝何かが増え続けている／ギザギザ＝スナップショットやゴミ箱が一時的に空きを握り解放される波（夜間に空きが戻る現象など）。"
         ),
     );
     let pts = load();
@@ -192,6 +245,23 @@ fn svg_chart(pts: &[Point]) -> String {
         ));
     }
 
+    // Scan points get an emphasised orange diamond so "the moment you scanned"
+    // stands out from the routine periodic samples.
+    let mut scans = String::new();
+    for (i, p) in pts.iter().enumerate() {
+        if p.scan {
+            let (sx, sy) = (x(i), y(p.free));
+            scans.push_str(&format!(
+                "<path d='M {sx:.1} {:.1} L {:.1} {sy:.1} L {sx:.1} {:.1} L {:.1} {sy:.1} Z' \
+                 fill='#fb8500' stroke='#fff' stroke-width='1'/>",
+                sy - 4.5,
+                sx + 4.5,
+                sy + 4.5,
+                sx - 4.5,
+            ));
+        }
+    }
+
     // Latest point marker.
     let (lx, ly) = (x(n - 1), y(pts[n - 1].free));
 
@@ -206,23 +276,63 @@ fn svg_chart(pts: &[Point]) -> String {
          <polyline points='{area}' fill='#0969da' fill-opacity='0.08' stroke='none'/>\
          <polyline points='{line}' fill='none' stroke='#0969da' stroke-width='2' \
          stroke-linejoin='round' stroke-linecap='round'/>\
+         {scans}\
          <circle cx='{lx:.1}' cy='{ly:.1}' r='3.5' fill='#0969da'/>\
          <text x='{ml:.1}' y='{tb:.1}' font-size='11' fill='#57606a' text-anchor='start'>{xf}</text>\
          <text x='{xr:.1}' y='{tb:.1}' font-size='11' fill='#57606a' text-anchor='end'>{xl}</text>\
          </svg>\
-         <div style='color:#57606a;font-size:12px;margin-top:8px'>{note}</div>",
+         <div style='color:#57606a;font-size:12px;margin-top:8px'>\
+         <span style='color:#0969da'>—</span> {note} &nbsp; \
+         <span style='color:#fb8500'>◆</span> {scan_legend}</div>",
         tb = h - 12.0,
         xr = ml + pw,
         xf = esc(x_first),
         xl = esc(x_last),
         note = if is_ja() {
-            "縦軸＝起動ディスクの空き容量（表示範囲は増減が見えるよう自動ズーム）。横軸＝時間。"
+            "空き容量（縦軸は増減が見えるよう自動ズーム・横軸は時間）"
         } else {
-            "Y = startup-disk free space (auto-zoomed to the range so changes are visible). X = time."
+            "free space (Y auto-zoomed so changes show; X = time)"
+        },
+        scan_legend = if is_ja() {
+            "スキャンした時点"
+        } else {
+            "a point recorded at scan time"
         },
     )
 }
 
 fn first_ts(pts: &[Point]) -> String {
     pts.first().map(|p| p.ts.clone()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_three_column_line_is_treated_as_a_scan_point() {
+        // History written before the `kind` column existed was recorded at scan
+        // time, so a missing 4th column must read back as a scan point.
+        let p = parse_line("2026-11-21 08:00:00\t1000\t2000").unwrap();
+        assert_eq!(p.free, 1000);
+        assert!(p.scan);
+    }
+
+    #[test]
+    fn kind_column_distinguishes_scan_from_auto() {
+        assert!(parse_line("2026-11-21 08:00:00\t1\t2\tscan").unwrap().scan);
+        assert!(!parse_line("2026-11-21 08:00:00\t1\t2\tauto").unwrap().scan);
+    }
+
+    #[test]
+    fn malformed_lines_are_dropped() {
+        assert!(parse_line("nope").is_none());
+        assert!(parse_line("2026-11-21 08:00:00\tx\t2\tauto").is_none());
+    }
+
+    #[test]
+    fn timestamp_parses_for_age_pruning() {
+        assert!(parse_ts("2026-11-21 08:00:00").is_some());
+        assert!(parse_ts("garbage").is_none());
+    }
 }
