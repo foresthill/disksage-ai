@@ -31,6 +31,10 @@ struct ScanState {
     ai_running: bool,
     deep: Option<crate::deep::DeepScan>,
     deep_running: bool,
+    /// Whole-drive MFT scan (Windows, admin) — the "where did it all go" view when
+    /// the pattern scan finds nothing on a full drive. Ok result or a typed error.
+    drive: Option<Result<crate::drivescan::DriveScan, crate::drivescan::DriveScanError>>,
+    drive_running: bool,
     /// Follow-up conversation about the current findings (reset on a new scan).
     chat: Vec<crate::chat::ChatTurn>,
     chat_running: bool,
@@ -56,6 +60,8 @@ fn trigger_scan(state: State) {
         s.findings = Some(found);
         s.ai = None; // previous judgments were for the old findings/indices
         s.deep = None; // deep results were for the previous scan
+        s.drive = None; // whole-drive scan was for the previous state
+        s.drive_running = false;
         s.chat.clear(); // the conversation was about the previous findings
         s.chat_running = false;
         s.scanning = false;
@@ -139,10 +145,14 @@ fn scan_page(state: &State, deleted: bool) -> (String, bool) {
                 body.push_str(&crate::chat_ui::panel_html(&s.chat, s.chat_running));
             }
             body.push_str(&crate::deep::section_html(s.deep.as_ref(), s.deep_running));
-            // Auto-refresh while a rescan, an AI call, the chat, or Full scan runs.
+            body.push_str(&crate::drivescan_ui::panel_html(
+                s.drive.as_ref(),
+                s.drive_running,
+            ));
+            // Auto-refresh while a rescan, an AI call, the chat, Full or drive scan runs.
             (
                 body,
-                s.scanning || s.ai_running || s.deep_running || s.chat_running,
+                s.scanning || s.ai_running || s.deep_running || s.chat_running || s.drive_running,
             )
         }
         None => {
@@ -309,6 +319,32 @@ pub fn run(port: u16) -> Result<(), String> {
                     let mut s = st.lock().unwrap();
                     s.deep = Some(result);
                     s.deep_running = false;
+                });
+            }
+            let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");
+            let _ = req.respond(Response::empty(303).with_header(loc));
+            continue;
+        }
+        // Whole-drive MFT scan (Windows, admin). Runs off the request thread
+        // because it reads the entire volume. Same guard shape as /fullscan.
+        if path == "/drivescan" && *req.method() == Method::Post {
+            let go = {
+                let mut s = state.lock().unwrap();
+                if s.drive_running {
+                    false
+                } else {
+                    s.drive_running = true;
+                    s.drive = None;
+                    true
+                }
+            };
+            if go {
+                let st = state.clone();
+                thread::spawn(move || {
+                    let result = crate::drivescan::scan_system_drive(25);
+                    let mut s = st.lock().unwrap();
+                    s.drive = Some(result);
+                    s.drive_running = false;
                 });
             }
             let loc = Header::from_bytes(&b"Location"[..], &b"/"[..]).expect("hdr");

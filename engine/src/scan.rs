@@ -326,7 +326,7 @@ pub fn run(json: bool) {
 
     println!("## Findings\n");
     if findings.is_empty() {
-        println!("No findings above threshold.");
+        println!("✅ All clear — nothing is over the size threshold.");
         return;
     }
     for f in &findings {

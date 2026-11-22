@@ -85,13 +85,24 @@ fn ai_badge(judgment: Option<&Judgment>) -> String {
 /// judgment (matched by its original index).
 pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
     if findings.is_empty() {
-        return format!(
-            "<p style='color:#57606a'>{}</p>",
-            t(
-                "No findings above threshold. 🎉",
-                "しきい値を超える項目はありません 🎉"
-            )
+        // Lead with the reassuring part: the old "しきい値を超える…" opening read
+        // like an alarm when it actually means the opposite (nothing is over it).
+        let base = t(
+            "<p style='color:#57606a'>✅ All clear — nothing is over the size threshold.",
+            "<p style='color:#57606a'>✅ 問題なし — サイズがしきい値を超える項目はありませんでした。",
         );
+        // On a full disk the pattern scan can still find nothing (e.g. on Windows,
+        // where most space is outside the user folder). Point to the whole-drive
+        // scan — but only where that panel actually appears.
+        let hint = if crate::drivescan::supported() {
+            t(
+                " If the disk is still full, try the whole-drive scan below.</p>",
+                " ディスクがまだ一杯なら、下の「フルドライブスキャン」を試してください。</p>",
+            )
+        } else {
+            "</p>"
+        };
+        return format!("{base}{hint}");
     }
     let ai_by_index: HashMap<usize, &Judgment> =
         ai.into_iter().flatten().map(|j| (j.index, j)).collect();

@@ -34,6 +34,11 @@ pub struct DriveScan {
     pub file_count: u64,
 }
 
+/// Whether the whole-drive MFT scan is available on this platform (Windows only).
+pub fn supported() -> bool {
+    cfg!(windows)
+}
+
 /// Why a drive scan could not run.
 pub enum DriveScanError {
     /// Not available on this platform (the MFT fast path is Windows-only).

@@ -18,6 +18,7 @@ pub mod claude_cli;
 pub mod deep;
 pub mod df;
 pub mod drivescan;
+pub mod drivescan_ui;
 pub mod findings;
 pub mod flow;
 pub mod lang;
