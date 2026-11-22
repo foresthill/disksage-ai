@@ -55,8 +55,8 @@ fn findings_html(findings: &[Finding]) -> String {
         return format!(
             "<p>{}</p>",
             t(
-                "No findings above threshold.",
-                "しきい値を超える項目はありません。"
+                "✅ All clear — nothing is over the size threshold.",
+                "✅ 問題なし — サイズがしきい値を超える項目はありませんでした。"
             )
         );
     }

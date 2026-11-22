@@ -85,6 +85,41 @@ fn cmd_ai(yes: bool, ai_log: bool) {
     }
 }
 
+/// `drivescan` — whole-drive "where did it all go" via the NTFS MFT (Windows
+/// only; needs administrator). Shows the biggest top-level items and files across
+/// the entire system drive, not just the user profile.
+fn cmd_drivescan() {
+    use disksage_engine::drivescan::{scan_system_drive, DriveScanError};
+    match scan_system_drive(25) {
+        Ok(s) => {
+            println!("## Whole-drive scan: {}", s.drive);
+            println!("{} files · {} total\n", s.file_count, human(s.total_bytes));
+            println!("### Biggest top-level items");
+            for e in &s.folders {
+                println!("- {:>10}  {}", human(e.bytes), e.name);
+            }
+            println!("\n### Biggest individual files");
+            for (p, b) in &s.files {
+                println!("- {:>10}  {}", human(*b), p);
+            }
+        }
+        Err(DriveScanError::Unsupported) => {
+            eprintln!("drivescan: the whole-drive MFT scan is Windows-only.");
+            std::process::exit(2);
+        }
+        Err(DriveScanError::NeedsAdmin) => {
+            eprintln!(
+                "drivescan: access denied — run DiskSage as administrator to scan the whole drive."
+            );
+            std::process::exit(1);
+        }
+        Err(DriveScanError::Failed(m)) => {
+            eprintln!("drivescan: {m}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn cmd_df_human() {
     println!("## Current Disk Usage\n");
     for (total, members) in df::containers().iter().rev() {
@@ -160,6 +195,7 @@ fn main() {
             }
         }
         Some("scan") => scan::run(json),
+        Some("drivescan") => cmd_drivescan(),
         Some("snapshots") => snapshots::run(json),
         Some("ai") => cmd_ai(
             args.iter().any(|a| a == "--yes"),
@@ -182,7 +218,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df        [--json]\n  disksage-engine scan      [--json]\n  disksage-engine snapshots [--json]\n  disksage-engine ai        [--yes] [--ai-log]\n  disksage-engine serve     [--port N]\n  disksage-engine --version\n\nDISKSAGE_AI_LOG=1 also enables the AI audit log ($DISKSAGE_HOME/ai-logs/)."
+                "disksage-engine (PoC)\n\nUsage:\n  disksage-engine df        [--json]\n  disksage-engine scan      [--json]\n  disksage-engine drivescan            (Windows, admin: whole-drive via NTFS MFT)\n  disksage-engine snapshots [--json]\n  disksage-engine ai        [--yes] [--ai-log]\n  disksage-engine serve     [--port N]\n  disksage-engine --version\n\nDISKSAGE_AI_LOG=1 also enables the AI audit log ($DISKSAGE_HOME/ai-logs/)."
             );
             std::process::exit(2);
         }
