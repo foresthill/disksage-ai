@@ -266,7 +266,7 @@ Known patterns bundled in the initial release:
 | Photos library | `~/Pictures/Photos Library.photoslibrary` — irreplaceable; awareness only | ℹ️ Info |
 | Apple Mail data | `~/Library/Mail` — mostly re-syncable IMAP mail | 🔵 Low |
 | Downloads folder | `~/Downloads` — old installers/files to review | 🔵 Low |
-| Claude workspace VM | `~/Library/Application Support/Claude/vm_bundles` — AI tool runtime; manage via Claude's Storage | ℹ️ Info |
+| Claude workspace VM | `~/Library/Application Support/Claude/vm_bundles` — AI tool runtime; `rootfs.img` grows unbounded and is not auto-reclaimed ([claude-code#65577](https://github.com/anthropics/claude-code/issues/65577)), no official cleanup. DiskSage only reports it; an unofficial community workaround exists in the issue (use at your own risk) | ℹ️ Info |
 | Android SDK | `~/Library/Android/sdk` (or `~/Android/Sdk`) — trim unused platforms/images via SDK Manager (>5GB) | 🔵 Low |
 | Android emulator images (AVDs) | `~/.android/avd` — each virtual device is large; delete unused in Device Manager (>3GB) | 🟡 Medium |
 | Gradle build cache | `~/.gradle` — shared build cache, rebuilds on next build (>2GB) | 🟢 Safe |

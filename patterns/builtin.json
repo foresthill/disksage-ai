@@ -126,8 +126,8 @@
     "severity": "info",
     "label_en": "Claude Code / Desktop workspace VM",
     "label_ja": "Claude Code / Desktop のワークスペース VM",
-    "action_en": "The Claude desktop app's workspace VM (rootfs + session data). Managed by Claude — reclaim it from Claude's Settings → Storage, don't delete these files by hand (that resets your workspaces).",
-    "action_ja": "Claude デスクトップのワークスペース VM（rootfs＋セッションデータ）。Claude が管理。整理は Claude の 設定 → ストレージ から。手でファイルを消すとワークスペースが初期化されます。"
+    "action_en": "Claude's VM disk. Known to grow unbounded and not auto-reclaimed (known bug: anthropics/claude-code#65577); there is no official cleanup. DiskSage won't touch it. An unofficial community workaround exists — see the issue, and use it only at your own risk.",
+    "action_ja": "Claude の VM ディスク。無制限に育ち自動回収されない既知バグ（anthropics/claude-code#65577）。公式の整理機能は無い。DiskSage は触りません。非公式のコミュニティ回避策は Issue を参照（自己責任で）。"
   },
   {
     "id": "android_sdk",
