@@ -38,5 +38,13 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "async-
 # inject <script>/event-handlers/remote images into the local webview.
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
+# Windows-only: read the NTFS $MFT directly (the mechanism the "Everything" search
+# tool uses) so a whole-drive scan sees every file's size/path in one fast pass —
+# not just the user profile the std::fs walk is limited to. Reading the raw volume
+# needs an elevated process; drivescan.rs reports NeedsAdmin otherwise. Gated to
+# cfg(windows) so macOS/Linux builds never pull this native, Windows-only crate.
+[target.'cfg(windows)'.dependencies]
+ntfs-reader = "0.6"
+
 [profile.release]
 strip = true

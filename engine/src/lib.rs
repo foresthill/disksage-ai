@@ -17,6 +17,7 @@ pub mod chat_ui;
 pub mod claude_cli;
 pub mod deep;
 pub mod df;
+pub mod drivescan;
 pub mod findings;
 pub mod flow;
 pub mod lang;
