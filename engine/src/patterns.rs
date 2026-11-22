@@ -155,10 +155,24 @@ mod tests {
         ] {
             assert!(ids.contains(&id), "missing built-in pattern: {id}");
         }
-        // pnpm has two candidate paths; thresholds convert to bytes.
+        // pnpm has mac/linux/windows candidate paths; thresholds convert to bytes.
         let pnpm = list.iter().find(|p| p.id == "pnpm_store").unwrap();
-        assert_eq!(pnpm.paths.len(), 2);
+        assert_eq!(pnpm.paths.len(), 3);
         assert_eq!(pnpm.threshold, 5 * 1024 * 1024 * 1024);
         assert_eq!(pnpm.severity, "safe");
+    }
+
+    #[test]
+    fn cross_platform_patterns_carry_a_windows_candidate_path() {
+        // Patterns whose macOS location differs from Windows must also list the
+        // Windows (~/AppData/Local/...) path so detection works there too.
+        let list = parse(BUILTIN);
+        for id in ["npm_cache", "pnpm_store", "android_sdk"] {
+            let p = list.iter().find(|p| p.id == id).unwrap();
+            assert!(
+                p.paths.iter().any(|path| path.contains("AppData/Local")),
+                "{id} is missing a Windows ~/AppData/Local candidate path"
+            );
+        }
     }
 }

@@ -21,7 +21,7 @@
   },
   {
     "id": "npm_cache",
-    "path": "~/.npm/_cacache",
+    "paths": ["~/.npm/_cacache", "~/AppData/Local/npm-cache/_cacache"],
     "threshold_gib": 5,
     "severity": "safe",
     "label_en": "npm download cache (~/.npm/_cacache)",
@@ -31,7 +31,7 @@
   },
   {
     "id": "pnpm_store",
-    "paths": ["~/Library/pnpm/store", "~/.local/share/pnpm/store"],
+    "paths": ["~/Library/pnpm/store", "~/.local/share/pnpm/store", "~/AppData/Local/pnpm/store"],
     "threshold_gib": 5,
     "severity": "safe",
     "label_en": "pnpm content-addressable store",
@@ -131,7 +131,7 @@
   },
   {
     "id": "android_sdk",
-    "paths": ["~/Library/Android/sdk", "~/Android/Sdk"],
+    "paths": ["~/Library/Android/sdk", "~/Android/Sdk", "~/AppData/Local/Android/Sdk"],
     "threshold_gib": 5,
     "severity": "low",
     "label_en": "Android SDK",
