@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::lang::t;
+use crate::lang::{is_ja, t};
 use crate::util::{esc, home_dir, percent_decode};
 
 /// $DISKSAGE_HOME/config (default ~/.disksage/config).
@@ -99,6 +99,22 @@ pub fn handle_post(body: &str) -> bool {
     if form_value(body, "update_action") == Some("set") {
         let on = form_value(body, "update_check").is_some();
         write_key("update_check", if on { "" } else { "off" });
+        return false;
+    }
+    // Trend sampler form: interval (how often = resolution) and retention (how
+    // far back to keep). They're independent, so changing one never silently
+    // changes the other. Both are whitelisted.
+    if form_value(body, "trend_action") == Some("set") {
+        if let Some(v) = form_value(body, "trend_interval") {
+            if matches!(v, "off" | "15" | "30" | "60") {
+                write_key("trend_interval", v);
+            }
+        }
+        if let Some(v) = form_value(body, "trend_retention") {
+            if matches!(v, "7" | "21" | "30" | "365" | "forever") {
+                write_key("trend_retention", v);
+            }
+        }
         return false;
     }
     // AI audit-log toggle (a checkbox: present only when ticked). Default off, so
@@ -391,6 +407,99 @@ fn audit_section() -> String {
     )
 }
 
+/// A concrete "≈ N points kept" line for the chosen interval + retention, so the
+/// coupling is visible: interval is resolution, retention is how far back.
+fn trend_hint() -> String {
+    match crate::trend::interval_minutes() {
+        None => t(
+            "Periodic recording is off — only a scan adds a point.",
+            "定期記録はオフ — スキャンした時だけ点が増えます。",
+        )
+        .to_string(),
+        Some(mins) => {
+            let per_day = (1440 / mins.max(1)).max(1);
+            match crate::trend::retention_days() {
+                Some(days) => {
+                    let pts = per_day * days;
+                    if is_ja() {
+                        format!("≈ {pts} 点を保持（{mins}分ごと × {days}日分）")
+                    } else {
+                        format!("≈ {pts} points kept ({mins} min × {days} days)")
+                    }
+                }
+                None => {
+                    if is_ja() {
+                        format!("1日あたり約 {per_day} 点を無期限に保持（上限10万点）")
+                    } else {
+                        format!("~{per_day} points/day kept forever (capped at 100k)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The trend / periodic-sampling ("定点観測") section: two independent knobs —
+/// interval = how often a point is recorded (resolution), retention = how far
+/// back history is kept. Changing the interval does NOT change the period.
+fn trend_section() -> String {
+    let cur_int = read_key("trend_interval"); // "" → default 30
+    let cur_ret = read_key("trend_retention"); // "" → default 21
+    let radio = |name: &str, val: &str, label: &str, cur: &str, default: &str| {
+        let checked = if val == cur || (cur.is_empty() && val == default) {
+            "checked"
+        } else {
+            ""
+        };
+        format!(
+            "<label style='margin-right:14px;font-size:14px;white-space:nowrap'>\
+             <input type='radio' name='{name}' value='{val}' {checked}> {label}</label>"
+        )
+    };
+    let i = |v: &str, l: &str| radio("trend_interval", v, l, &cur_int, "30");
+    let r = |v: &str, l: &str| radio("trend_retention", v, l, &cur_ret, "21");
+    format!(
+        "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
+         <form method='post' action='/settings'>\
+         <input type='hidden' name='trend_action' value='set'>\
+         <div style='font-size:13px;color:#57606a;margin-bottom:4px'>{int_l}</div>\
+         <div style='margin-bottom:10px'>{}{}{}{}</div>\
+         <div style='font-size:13px;color:#57606a;margin-bottom:4px'>{ret_l}</div>\
+         <div style='margin-bottom:10px'>{}{}{}{}{}</div>\
+         <div style='font-size:12px;color:#57606a;margin-bottom:10px'>📊 {hint}</div>\
+         <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
+         padding:8px 16px;font-size:14px;cursor:pointer'>{save}</button></form>\
+         <div style='color:#57606a;font-size:12px;margin-top:6px'>{note}</div>",
+        i("15", t("15 min", "15分")),
+        i("30", t("30 min", "30分")),
+        i("60", t("1 hour", "1時間")),
+        i("off", t("Off", "オフ")),
+        r("7", t("7 days", "7日")),
+        r("21", t("21 days", "21日")),
+        r("30", t("1 month", "1ヶ月")),
+        r("365", t("1 year", "1年")),
+        r("forever", t("Forever", "無期限")),
+        h = t("📈 Trend recording", "📈 推移の記録（定点観測）"),
+        int_l = t(
+            "Interval — how often a free-space point is recorded (resolution):",
+            "記録間隔 — 空き容量を記録する頻度（＝解像度）:"
+        ),
+        ret_l = t(
+            "Retention — how far back history is kept (independent of interval):",
+            "保持期間 — どこまで遡れるか（間隔とは独立）:"
+        ),
+        hint = trend_hint(),
+        save = t("Save", "保存"),
+        note = t(
+            "Recorded only while DiskSage is running; each point is just timestamp + \
+             free/total bytes (no file names or paths), stored locally. The interval sets \
+             resolution; retention sets the period — changing the interval does not change \
+             how far back you can look. Each scan still adds a special ◆ point on the chart.",
+            "DiskSage 常駐中のみ記録します。1点は「時刻＋空き/全体バイト数」だけ（ファイル名やパスは含みません）でローカル保存。間隔＝解像度、保持期間＝遡れる長さで、間隔を変えても遡れる期間は変わりません。スキャンした時はチャートに ◆ の特別な点が追加されます。"
+        ),
+    )
+}
+
 /// The startup section: informational only. The actual login-item toggle lives in
 /// the native menu bar (tray), because this web UI runs on localhost and can't call
 /// the OS auto-start API — so we point the user there instead of a dead control.
@@ -468,13 +577,14 @@ pub fn settings_html(saved: bool) -> String {
          <div style='color:#57606a;font-size:12px;margin:6px 0 14px'>{note}</div>\
          <button type='submit' style='background:#1f6feb;color:#fff;border:0;border-radius:8px;\
          padding:9px 18px;font-size:14px;cursor:pointer'>{save}</button></form>\
-         {provider}{ai}{ollama}{audit}{update}{startup}\
+         {trend}{provider}{ai}{ollama}{audit}{update}{startup}\
          <h3 style='font-size:15px;margin:24px 0 6px'>{about}</h3>\
          <div style='color:#57606a;font-size:13px;line-height:1.7'>{data_l} <code>{}</code><br>{never}</div>",
         opt("", t("Auto (system)", "自動（システム）")),
         opt("ja", "日本語"),
         opt("en", "English"),
         esc(&data_dir),
+        trend = trend_section(),
         provider = provider_section(),
         ai = ai_section(),
         ollama = ollama_section(),
