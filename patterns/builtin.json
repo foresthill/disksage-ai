@@ -158,5 +158,65 @@
     "label_ja": "Gradle ビルドキャッシュ",
     "action_en": "Shared build cache (Android and other Gradle/Kotlin/Java projects). Safe to clear — it re-downloads and rebuilds on the next build. Run './gradlew --stop' first, or leave it if you build often.",
     "action_ja": "共有ビルドキャッシュ（Android や他の Gradle/Kotlin/Java プロジェクトも使用）。消しても安全＝次ビルドで再DL・再生成されます。先に『./gradlew --stop』を。頻繁にビルドするなら残しても可。"
+  },
+  {
+    "id": "pictures_folder",
+    "path": "~/Pictures",
+    "threshold_gib": 10,
+    "severity": "info",
+    "label_en": "Pictures folder",
+    "label_ja": "画像フォルダ (~/Pictures)",
+    "action_en": "Your photos and images — review, don't bulk-delete. To free space, move older photos to an external drive or NAS. DiskSage never deletes these.",
+    "action_ja": "写真・画像＝まとめ削除は禁物。古い写真は外付け/NAS へ退避を。DiskSage は削除しません。"
+  },
+  {
+    "id": "videos_folder",
+    "paths": ["~/Movies", "~/Videos"],
+    "threshold_gib": 10,
+    "severity": "info",
+    "label_en": "Videos folder",
+    "label_ja": "動画フォルダ",
+    "action_en": "Video files are large and often irreplaceable. Archive finished recordings/projects to an external drive or NAS; review before removing anything. DiskSage never deletes these.",
+    "action_ja": "動画は大きく、二度と戻せないことも。完了した録画/制作物は外付け/NAS へ退避を。削除前に要確認。DiskSage は削除しません。"
+  },
+  {
+    "id": "music_folder",
+    "path": "~/Music",
+    "threshold_gib": 10,
+    "severity": "info",
+    "label_en": "Music folder",
+    "label_ja": "音楽フォルダ (~/Music)",
+    "action_en": "Music library and audio projects. Review and archive older material to external storage. DiskSage never deletes these.",
+    "action_ja": "音楽ライブラリや音声制作ファイル。古いものは外付けへ退避を。DiskSage は削除しません。"
+  },
+  {
+    "id": "documents_folder",
+    "path": "~/Documents",
+    "threshold_gib": 10,
+    "severity": "info",
+    "label_en": "Documents folder",
+    "label_ja": "書類フォルダ (~/Documents)",
+    "action_en": "Documents, books and saved files. Move what you rarely open to external storage; review before removing. DiskSage never deletes these.",
+    "action_ja": "書類・書籍・保存ファイル。めったに開かないものは外付けへ退避を。削除前に要確認。DiskSage は削除しません。"
+  },
+  {
+    "id": "applications_folder",
+    "paths": ["/Applications", "~/Applications"],
+    "threshold_gib": 20,
+    "severity": "info",
+    "label_en": "Applications folder (macOS)",
+    "label_ja": "アプリケーションフォルダ (macOS)",
+    "action_en": "Installed apps. Uninstall ones you no longer use. (On Windows apps live in Program Files and on Linux under /usr — both outside your user profile, so use the whole-drive scan there.)",
+    "action_ja": "インストール済みアプリ。使っていないものをアンインストール。（Windows は Program Files、Linux は /usr 配下＝プロファイル外なので、そちらはフルドライブスキャンで確認を。）"
+  },
+  {
+    "id": "docker_wsl",
+    "path": "~/AppData/Local/Docker/wsl",
+    "threshold_gib": 10,
+    "severity": "medium",
+    "label_en": "Docker Desktop data (WSL2, Windows)",
+    "label_ja": "Docker Desktop データ (WSL2・Windows)",
+    "action_en": "Docker's WSL2 data disk (images, containers, volumes). Don't delete the folder. Reclaim space with 'docker system prune', or compact the .vhdx (quit Docker and run 'wsl --shutdown' first). The disk file does not shrink on its own even after you remove images.",
+    "action_ja": "Docker の WSL2 データディスク（イメージ/コンテナ/ボリューム）。フォルダは削除しない。'docker system prune' で回収、または .vhdx を圧縮（先に Docker 終了＋'wsl --shutdown'）。イメージを消しても .vhdx 自体は自動では縮みません。"
   }
 ]
