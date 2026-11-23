@@ -457,10 +457,10 @@ pub fn run(port: u16) -> Result<(), String> {
                     let banner = t(
                         "<div style='background:#fff8c5;border:1px solid #eac54f;border-radius:8px;\
                          padding:10px 14px;margin-bottom:14px;font-size:14px'>📁 Saved report (read-only) · \
-                         <a href='/'>← Back to Scan</a></div>",
+                         <a href='/reports'>← All reports</a> · <a href='/'>Scan</a></div>",
                         "<div style='background:#fff8c5;border:1px solid #eac54f;border-radius:8px;\
                          padding:10px 14px;margin-bottom:14px;font-size:14px'>📁 保存済みレポート（読み取り専用） · \
-                         <a href='/'>← スキャンに戻る</a></div>",
+                         <a href='/reports'>← レポート一覧へ戻る</a> · <a href='/'>スキャン</a></div>",
                     );
                     let body = format!("{banner}{inner}");
                     let html =
