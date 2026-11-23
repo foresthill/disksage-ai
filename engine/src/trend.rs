@@ -16,7 +16,15 @@ use crate::util::{esc, home_dir, human};
 /// Absolute safety cap on stored points, independent of retention — bounds the
 /// file even at a fine interval with "forever" retention (100k lines ≈ a few MB).
 /// Normal pruning is by age (see `retention_days`); this is just a backstop.
-const MAX_POINTS: usize = 100_000;
+pub const MAX_POINTS: usize = 100_000;
+
+/// Approximate bytes per stored line — `YYYY-MM-DD HH:MM:SS\t<free>\t<total>\t<kind>\n`
+/// is ~53 bytes at most; rounded up. Used only for the Settings storage estimate.
+pub const BYTES_PER_POINT: u64 = 56;
+
+/// Upper bound on points actually drawn in the chart, so a long "forever" history
+/// stays light to render and legible rather than thousands of pixels of mush.
+const PLOT_CAP: usize = 800;
 
 /// Default periodic-sampling interval (minutes) when the config key is unset.
 const DEFAULT_INTERVAL_MIN: u64 = 30;
@@ -113,10 +121,26 @@ fn parse_ts(s: &str) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok()
 }
 
+#[derive(Clone)]
 struct Point {
     ts: String,
     free: u64,
     scan: bool,
+}
+
+/// Thin the series for plotting when it is longer than `PLOT_CAP`, but never drop
+/// a scan (◆) point or the most recent one — those are the points people look for.
+fn downsample(pts: &[Point]) -> Vec<Point> {
+    if pts.len() <= PLOT_CAP {
+        return pts.to_vec();
+    }
+    let stride = pts.len().div_ceil(PLOT_CAP);
+    let last = pts.len() - 1;
+    pts.iter()
+        .enumerate()
+        .filter(|(i, p)| p.scan || i % stride == 0 || *i == last)
+        .map(|(_, p)| p.clone())
+        .collect()
 }
 
 fn load() -> Vec<Point> {
@@ -192,7 +216,7 @@ pub fn trend_html() -> String {
             )
         )
     } else {
-        svg_chart(&pts)
+        svg_chart(&downsample(&pts))
     };
     format!("{heading}{summary}{chart}")
 }
@@ -334,5 +358,37 @@ mod tests {
     fn timestamp_parses_for_age_pruning() {
         assert!(parse_ts("2026-11-21 08:00:00").is_some());
         assert!(parse_ts("garbage").is_none());
+    }
+
+    #[test]
+    fn downsample_caps_points_but_keeps_scans_and_last() {
+        // A long auto history with a couple of scan points scattered in.
+        let mut pts: Vec<Point> = (0..5000)
+            .map(|i| Point {
+                ts: format!("t{i}"),
+                free: i as u64,
+                scan: false,
+            })
+            .collect();
+        pts[1234].scan = true;
+        pts[4321].scan = true;
+        let out = downsample(&pts);
+        assert!(out.len() <= PLOT_CAP + 10, "plotted points stay capped");
+        // Every scan point survives (so the ◆ markers never disappear)…
+        assert!(out.iter().filter(|p| p.scan).count() == 2);
+        // …and the most recent point is always kept.
+        assert_eq!(out.last().unwrap().free, 4999);
+    }
+
+    #[test]
+    fn downsample_is_noop_below_cap() {
+        let pts: Vec<Point> = (0..10)
+            .map(|i| Point {
+                ts: format!("t{i}"),
+                free: i as u64,
+                scan: false,
+            })
+            .collect();
+        assert_eq!(downsample(&pts).len(), 10);
     }
 }
