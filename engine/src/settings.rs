@@ -421,17 +421,27 @@ fn trend_hint() -> String {
             match crate::trend::retention_days() {
                 Some(days) => {
                     let pts = per_day * days;
+                    let size = crate::util::human(pts * crate::trend::BYTES_PER_POINT);
                     if is_ja() {
-                        format!("≈ {pts} 点を保持（{mins}分ごと × {days}日分）")
+                        format!("≈ {pts} 点を保持（{mins}分ごと × {days}日分）・ディスク約 {size}")
                     } else {
-                        format!("≈ {pts} points kept ({mins} min × {days} days)")
+                        format!(
+                            "≈ {pts} points kept ({mins} min × {days} days) · about {size} on disk"
+                        )
                     }
                 }
                 None => {
+                    let cap = crate::trend::MAX_POINTS as u64;
+                    let max_size = crate::util::human(cap * crate::trend::BYTES_PER_POINT);
+                    let days_to_cap = (cap / per_day).max(1);
                     if is_ja() {
-                        format!("1日あたり約 {per_day} 点を無期限に保持（上限10万点）")
+                        format!(
+                            "1日あたり約 {per_day} 点を無期限に保持 — 上限 {cap} 点（ディスク最大約 {max_size}・約 {days_to_cap} 日で上限到達）"
+                        )
                     } else {
-                        format!("~{per_day} points/day kept forever (capped at 100k)")
+                        format!(
+                            "~{per_day} points/day, kept forever — cap {cap} points (up to ~{max_size} on disk, ~{days_to_cap} days to reach it)"
+                        )
                     }
                 }
             }
@@ -444,7 +454,7 @@ fn trend_hint() -> String {
 /// back history is kept. Changing the interval does NOT change the period.
 fn trend_section() -> String {
     let cur_int = read_key("trend_interval"); // "" → default 30
-    let cur_ret = read_key("trend_retention"); // "" → default 21
+    let cur_ret = read_key("trend_retention"); // "" → default forever
     let radio = |name: &str, val: &str, label: &str, cur: &str, default: &str| {
         let checked = if val == cur || (cur.is_empty() && val == default) {
             "checked"
@@ -457,7 +467,7 @@ fn trend_section() -> String {
         )
     };
     let i = |v: &str, l: &str| radio("trend_interval", v, l, &cur_int, "30");
-    let r = |v: &str, l: &str| radio("trend_retention", v, l, &cur_ret, "21");
+    let r = |v: &str, l: &str| radio("trend_retention", v, l, &cur_ret, "forever");
     format!(
         "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
          <form method='post' action='/settings'>\
