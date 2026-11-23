@@ -29,9 +29,6 @@ const PLOT_CAP: usize = 800;
 /// Default periodic-sampling interval (minutes) when the config key is unset.
 const DEFAULT_INTERVAL_MIN: u64 = 30;
 
-/// Default retention (days) when the config key is unset — the "21-day rule".
-const DEFAULT_RETENTION_DAYS: u64 = 21;
-
 fn history_path() -> PathBuf {
     let home = std::env::var_os("DISKSAGE_HOME")
         .map(PathBuf::from)
@@ -51,14 +48,14 @@ pub fn interval_minutes() -> Option<u64> {
     }
 }
 
-/// How far back to keep history, in days. Reads config `trend_retention`: unset →
-/// default (21), "forever" → None (keep everything, bounded only by `MAX_POINTS`),
-/// a positive integer → that many days. The interval sets *resolution*; this sets
-/// *how far back you can look* — the two are independent.
+/// How far back to keep history, in days. Reads config `trend_retention`: unset or
+/// "forever" → None (keep everything, bounded only by `MAX_POINTS`); a positive
+/// integer → that many days. Forever is the default because even the finest
+/// interval tops out at a few MB (see `MAX_POINTS` / `BYTES_PER_POINT`). The
+/// interval sets *resolution*; this sets *how far back you can look* — independent.
 pub fn retention_days() -> Option<u64> {
     match crate::settings::read_key("trend_retention").as_str() {
-        "" => Some(DEFAULT_RETENTION_DAYS),
-        "forever" => None,
+        "" | "forever" => None,
         other => other.parse::<u64>().ok().filter(|d| *d > 0),
     }
 }

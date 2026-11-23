@@ -454,7 +454,7 @@ fn trend_hint() -> String {
 /// back history is kept. Changing the interval does NOT change the period.
 fn trend_section() -> String {
     let cur_int = read_key("trend_interval"); // "" → default 30
-    let cur_ret = read_key("trend_retention"); // "" → default 21
+    let cur_ret = read_key("trend_retention"); // "" → default forever
     let radio = |name: &str, val: &str, label: &str, cur: &str, default: &str| {
         let checked = if val == cur || (cur.is_empty() && val == default) {
             "checked"
@@ -467,7 +467,7 @@ fn trend_section() -> String {
         )
     };
     let i = |v: &str, l: &str| radio("trend_interval", v, l, &cur_int, "30");
-    let r = |v: &str, l: &str| radio("trend_retention", v, l, &cur_ret, "21");
+    let r = |v: &str, l: &str| radio("trend_retention", v, l, &cur_ret, "forever");
     format!(
         "<h3 style='font-size:15px;margin:24px 0 6px'>{h}</h3>\
          <form method='post' action='/settings'>\
