@@ -61,6 +61,7 @@
 - **Windows フルドライブスキャン ✅（#128・Phase A・2026-11-22／v0.1.25 同梱）**：「C: が 94% なのに検出ゼロ」の根治。quick スキャンは `~`（ユーザープロファイル）の中しか見ないため、ディスクの大半（`C:\Windows`/`Program Files`/`pagefile.sys`/WinSxS）がプロファイル外で不可視だった。解決＝Everything(voidtools) と同じく **NTFS の `$MFT` を1パスで読み**全ファイルを集計。`engine/src/drivescan.rs`（集計 `Aggregator`/`first_component` は**クロスプラットフォーム＝mac でユニットテスト**）＋`#[cfg(windows)]` `scan_system_drive`＝**`ntfs-reader` crate**（`Volume::new(r"\\.\C:")`→`Mft`→`files()`）。UI は `drivescan_ui.rs`（Scan 画面に「🔎 ドライブ全体をスキャン」ボタン＝Windows でのみ表示・結果レンダラは OS 非依存でテスト可能）、serve は `/drivescan` POST を背景スレッド実行。**管理者権限が必要**（生ボリューム読取り）＝無い時は `NeedsAdmin` を返し「管理者で実行」案内（勝手に何もしない原則維持）・読み取り専用・メタデータのみ（privacy 不変）。`ntfs-reader` は `[target.'cfg(windows)'.dependencies]`＝mac/Linux は pull しない。**⚠️ 検証の正直な範囲**：私（mac）は Windows 専用コードをビルドできない。**`ci.yml` の `engine-windows` ジョブ（build+clippy on windows-latest）が唯一の Windows コンパイル検証**。**実機ランタイム（管理者で C: 全体スキャン）はリリース後に Windows 実機で要確認（未検証）**。Phase B（将来）＝MFT の全ファイルで**既存パターンをドライブ全体に適用**（pagefile/hiberfil/WinSxS・`C:\…` 絶対パス対応）、Phase C＝USN journal で「最近増えたもの」検知
 - **Windows quick（通常）スキャンの拡充 ✅（#125・v0.1.25 同梱）**：フルスキャンだけでなく**通常スキャンも Windows で「ある程度」見える**ように、`patterns/builtin.json` に Windows の store/cache パスを追記＝`npm_cache`(`~/AppData/Local/npm-cache/_cacache`)・`pnpm_store`(`~/AppData/Local/pnpm/store`)・`android_sdk`(`~/AppData/Local/Android/Sdk`)。**コード変更ゼロ**（JSON のみ＝#67 外出しの成果）。加えて `~/.ollama/models`・`~/.cache`・`~/Downloads`・`~/.gradle`・`~/.android/avd` 等の**クロスプラットフォーム `~/…` パターンは元々 Windows プロファイル配下で検出**される（patterns.rs の `~` 展開）。**正直な残課題**：mac ほど網羅していない（`~/Library/…` 相当の Windows 固有パスが未整備）。候補＝`%LOCALAPPDATA%\Temp`、ブラウザキャッシュ、Docker Desktop の WSL vhdx、`%LOCALAPPDATA%\Microsoft\Windows\INetCache` 等（公式パス確認後に追加）。※#125/#128 とも**このリリース作業セッションより前の別 PR で実装済**＝私がこのセッションで quick スキャンを追加で直したわけではない（マージ＋リリースを実施）
 - **v0.1.25 正式リリース（GA・publish 済）✅（2026-11-23）**：#128（ドライブ全体スキャン）＋#124（定点観測サンプラー）を同梱。タグ `v0.1.25` → desktop.yml が3OSビルド（署名・公証済み mac + Win + Linux）→**14 成果物＋`latest.json`**。**draft→publish（`--draft=false --latest`）**でユーザーが公開。**自動更新エンドポイント `releases/latest/download/latest.json` が HTTP 302（到達）を実測**＝旧版への更新配信が開通。**定点観測が v0.1.24 で動かなかった原因（git で確定）**：v0.1.24（c8a2e11・#121）は**サンプラー #124（87b4c84）より前**＝リリース済みバイナリに定期サンプラーが**そもそも入っていなかった**（スキャン時の1点しか記録しない）。コードのバグではなくバージョンの問題。v0.1.25 で解消（常駐中 30分ごと `/trend` に自動記録）。**要実機確認（未検証）**：旧→新の実**自動更新**（トレイ「Check for Updates…」）／Windows 管理者起動でのフルドライブスキャン実ランタイム
+- **v0.1.26 正式リリース（GA・publish 済）✅（2026-11-23）**：#130（王道フォルダ pictures/videos/music/documents/applications＋Docker WSL2 data）＋#131（定点観測＝無期限既定・容量目安・チャート軽量化）＋#132（保存レポート→一覧の導線）を同梱。#133 で bump 0.1.25→0.1.26→タグ `v0.1.26` → desktop.yml が3OSビルド（署名・公証済み mac + Win + Linux）→**14 成果物＋`latest.json`**→**draft→publish（`--draft=false --latest`）**で公開。**動作確認済**：Release `isDraft=false`/`isPrerelease=false`／GitHub API `latest`=**v0.1.26**／自動更新エンドポイント `releases/latest/download/latest.json` が **HTTP 200**（＝v0.1.25 ユーザーへの配信が開通）。**要実機確認（未検証）**：旧（v0.1.25）→v0.1.26 の実**自動更新**往復（トレイ「Check for Updates…」）＝署名・latest.json・endpoint 200 の部品は検証済みだが実 DL→インストール→再起動は未検証／Windows 管理者起動でのフルドライブスキャン実ランタイム
 - **設定画面 ✅（`/settings`）**：`settings_page()`＝レポート言語の選択（自動/日本語/English、ラジオ）＋データ保存先表示＋「自動削除しない」明示。保存は POST `/settings`→`set_config_lang()` が `$DISKSAGE_HOME/config` の `lang=` を書換（値は en/ja/空 にホワイトリスト）→`?saved=1` で✅バナー。今日の `disksage config lang` と同じ config を GUI から操作＝CLI/GUI 一貫。**ユーザー指摘「以前サイドメニューにレポートと設定がある構成を伝えたのに、レポートしか出ていない」への対応**（サイドバーは既にあったが設定画面が未実装だった）。制約: 実行中 serve の UI 言語（SERVE_LANG）は起動時固定＝言語切替は新スキャン/再起動で全反映（画面に明記）
 - serve レポート履歴 ✅：serve のツールバーに履歴 `<select>`（新しい順・「最新」タグ）。選ぶと `GET /?report=<stamp>` で過去レポート表示（stamp はサーバ側 `all_reports()` のホワイトリスト照合＝traversal防止）。過去レポートは読み取り専用（黄色バナー＋最新へ戻るリンク、削除パネル無し）。最新のみ削除パネル表示。`page(report_param)` / `toolbar()` / `old_banner()` / `friendly()`
 - ディスク使用量表示 ✅改善：APFS は複数ボリュームが1コンテナの空きを共有するため、`df` の個別%は誤解を生む。`render_disk_usage`(md)/`render_html` を**サイズ(=コンテナ)でグルーピング**し、コンテナ単位で「使用/全体/実%/空き」を1本のバー＋ボリューム内訳（used順）で表示（`df -Pk` で数値取得、used=size-avail）。「起動ディスク」ラベルは `/` を含むコンテナ。i18n: lbl_startup/used/free/disk_volnote
@@ -182,6 +183,21 @@
 3. **Privacy first.** `--ai` モードでも、送るのはファイル名・パス・メタデータのみ。**ファイル内容は絶対に送信しない**。
 4. **BYOK default.** Claude API 使うなら自分のキー。マネージド API は Pro 版（将来）の差別化要素。
 5. **Transparent.** OSS、判定ロジックは全部読める。ブラックボックスは作らない。
+
+---
+
+## リリース手順（標準ステップ・毎回この順で）
+
+リリースのたびに踏む定型手順。**最後の「CLAUDE.md 追記」まで含めて1リリース**（省略しない）。
+
+1. **feature ブランチで bump**：`desktop/src-tauri/{tauri.conf.json, Cargo.toml, Cargo.lock}` の version を上げる PR（例 #133）。main 直 push 禁止。
+2. **マージ**：CI 緑を確認してマージ（desktop のみ変更だと ci.yml は path filter で走らず "no checks" になり得る＝正常）。
+3. **タグ push**：`git tag -a vX.Y.Z -m ...` → push。desktop.yml が3OSビルド（署名・公証済み mac + Win + Linux）→ **draft Release に14成果物＋`latest.json`**。
+4. **publish**：`gh release edit vX.Y.Z --draft=false --latest`（publish はユーザー操作が基本。私が叩くのはユーザーが「publish して」と言った時のみ）。
+5. **公開の動作確認**：`isDraft=false`／GitHub API `releases/latest`=該当タグ／updater endpoint `releases/latest/download/latest.json` が **HTTP 200**。
+6. **CLAUDE.md に GA 追記**：上の「現在のステータス」に `vX.Y.Z 正式リリース（GA・publish 済）✅` を1行追記（同梱 PR・動作確認済の事実・未検証項目を明記）。**この追記は feature ブランチ → PR で入れる**（main 直 push 禁止）。
+
+> この6が「基本含めて欲しい機能」＝リリースを出したら必ず CLAUDE.md に記録を残す、を定型化したもの。
 
 ---
 
