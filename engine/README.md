@@ -25,6 +25,42 @@ cargo run --release -- scan          # directory-size findings, like `disksage s
 cargo run --release -- scan --json
 ```
 
+## MCP server (read-only)
+
+`disksage-engine mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server over **stdio** (newline-delimited JSON-RPC 2.0), so an MCP client — Claude
+Desktop, Claude Code, etc. — can ask DiskSage "what's eating my disk?" and read
+back its findings.
+
+**Read-only by design.** The server exposes only diagnosis tools and *no*
+delete/trash tool. DiskSage's rule is "never auto-delete", so an autonomous LLM
+must not be able to remove your files through MCP — deletion stays in the app,
+behind explicit approval, to the Trash. Tools return the same local metadata the
+app shows (sizes, paths), never file contents, and stdio keeps it all on your
+machine.
+
+Tools:
+
+| tool | what it returns |
+| --- | --- |
+| `disk_usage` | free vs. used per disk/container + local snapshot count (fast) |
+| `scan` | large reclaimable items, each with a size, safety rating and suggested action |
+| `largest_folders` | the biggest folders under `$HOME` (optional `limit`, default 15) |
+
+Register it with an MCP client, e.g. Claude Desktop's `claude_desktop_config.json`
+(or `claude mcp add` for Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "disksage": {
+      "command": "/path/to/disksage-engine",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
 ## What works
 
 - **Cross-platform disk enumeration** via [`sysinfo`](https://crates.io/crates/sysinfo)

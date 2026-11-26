@@ -24,6 +24,7 @@ pub mod findings;
 pub mod flow;
 pub mod lang;
 pub mod mask;
+pub mod mcp;
 pub mod md;
 pub mod notes;
 pub mod ollama;
