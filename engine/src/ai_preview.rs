@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::lang::t;
 use crate::mask;
 use crate::scan::Finding;
-use crate::util::{esc, human};
+use crate::util::{esc, human, percent_encode};
 
 /// One finding as it would be sent: the real path (shown locally only), the
 /// masked path/description that actually leave, and whether anything was masked.
@@ -137,20 +137,29 @@ pub fn page_html(findings: Option<&[Finding]>) -> String {
          <th style='padding:6px 8px;border-bottom:1px solid #d0d7de'>{h_desc}</th></tr></thead><tbody>"
     ));
     let note_label = t("note", "メモ");
+    let edit_label = t("edit", "編集");
+    let add_label = t("📝 Add a note", "📝 メモを書く");
     for r in &rows {
         let mark = if r.anonymized {
             " <span style='color:#1a7f37;font-size:11px'>✓ masked</span>"
         } else {
             ""
         };
-        // Show the user's note under the description, exactly as it would be sent,
-        // so they can spot anything to redact before pressing "Ask the AI".
+        // Link to the note editor (keyed by the real path, local-only) so the intro's
+        // promise — "edit the note if anything should not be sent" — has a way to act.
+        let href = format!("/note?path={}", percent_encode(&r.real_path));
+        // Show the user's note under the description, exactly as it would be sent, so
+        // they can spot anything to redact — with a link to edit it (or add one) here.
         let note = match &r.masked_note {
             Some(n) => format!(
-                "<div style='margin-top:4px;color:#57606a'>📝 {note_label}: {}</div>",
+                "<div style='margin-top:4px;color:#57606a'>📝 {note_label}: {} \
+                 <a href='{href}' style='font-size:11px'>({edit_label})</a></div>",
                 esc(n)
             ),
-            None => String::new(),
+            None => format!(
+                "<div style='margin-top:4px'>\
+                 <a href='{href}' style='font-size:11px'>{add_label}</a></div>"
+            ),
         };
         out.push_str(&format!(
             "<tr>\
