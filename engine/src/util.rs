@@ -72,6 +72,23 @@ pub fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Percent-encode a string for use in a URL query value: RFC 3986 unreserved
+/// characters are kept, everything else (including UTF-8 bytes) becomes `%XX`.
+/// Reversed by `percent_decode`. Used to put a finding's path in a `/note?path=`
+/// link safely (paths carry `/`, `~`, spaces and non-ASCII).
+pub fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// Minimal JSON string escaping (the engine emits JSON without a serde dependency
 /// to stay tiny; this covers the characters that appear in paths and messages).
 pub fn json_escape(s: &str) -> String {
@@ -88,4 +105,26 @@ pub fn json_escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_encode_then_decode_roundtrips_a_path() {
+        for s in [
+            "~/Development/my project/node_modules",
+            "~/Documents/島本町 メモ.md",
+            "plain",
+        ] {
+            assert_eq!(percent_decode(&percent_encode(s)), s, "roundtrip: {s}");
+        }
+    }
+
+    #[test]
+    fn percent_encode_keeps_unreserved_and_escapes_the_rest() {
+        assert_eq!(percent_encode("aZ9-_.~"), "aZ9-_.~");
+        assert_eq!(percent_encode("a/b c"), "a%2Fb%20c");
+    }
 }

@@ -24,6 +24,7 @@ pub mod flow;
 pub mod lang;
 pub mod mask;
 pub mod md;
+pub mod notes;
 pub mod ollama;
 pub mod page;
 pub mod patterns;

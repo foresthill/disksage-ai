@@ -113,6 +113,8 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
             .cmp(&sev_rank(b.1.severity))
             .then(b.1.size.cmp(&a.1.size))
     });
+    // Load the user's notes once (not once per card) and look each finding up.
+    let notes = crate::notes::all();
     let mut out = String::new();
     let mut any_deletable = false;
     for (idx, f) in ordered {
@@ -154,13 +156,14 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
              border-radius:10px'>{}</span></div>\
              <div style='margin-top:6px'>{}</div>\
              {}\
-             <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}{}</div>",
+             <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}{}{}</div>",
             esc(&f.severity.to_uppercase()),
             esc(&f.description),
             path_cell(&f.path),
             esc(&f.action),
             drill,
             ai_badge(ai_by_index.get(&idx).copied()),
+            crate::notes::card_html(&notes, &f.path),
         ));
     }
     if any_deletable {
