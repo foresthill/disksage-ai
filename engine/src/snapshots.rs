@@ -14,6 +14,8 @@
 //! Apple Mac User Guide <https://support.apple.com/guide/mac-help/mh35933/mac>,
 //! `man tmutil` (thinlocalsnapshots / deletelocalsnapshots / listlocalsnapshots).
 
+use std::fmt::Write as _;
+
 use crate::lang::t;
 
 /// What created a snapshot — decides the advice and whether it's safe to touch.
@@ -140,20 +142,33 @@ fn count(snaps: &[Snap], k: Kind) -> usize {
 
 /// Human-readable report with per-kind advice. Respects the resolved UI language.
 fn human(apfs: &[Snap], tm: &[String]) {
-    println!("## {}\n", t("Snapshot diagnosis", "スナップショット診断"));
+    print!("{}", build_human(apfs, tm));
+}
+
+/// Build the per-kind report as a String (so the CLI can print it and the MCP
+/// server can return it). Respects the resolved UI language via `t()`.
+fn build_human(apfs: &[Snap], tm: &[String]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "## {}\n",
+        t("Snapshot diagnosis", "スナップショット診断")
+    );
     if apfs.is_empty() && tm.is_empty() {
-        println!(
+        let _ = writeln!(
+            out,
             "{}",
             t(
                 "No local snapshots. Snapshots are not holding any of your free space.",
                 "ローカルスナップショットはありません。空き容量を縛っているスナップショットはありません。"
             )
         );
-        return;
+        return out;
     }
     let pinned = apfs.iter().filter(|s| s.pinned).count();
-    println!(
-        "{} {} · {} {} · ⚠️ {} {}",
+    let _ = writeln!(
+        out,
+        "{} {} · {} {} · ⚠️ {} {}\n",
         apfs.len(),
         t("APFS snapshot(s)", "APFSスナップショット"),
         tm.len(),
@@ -164,15 +179,15 @@ fn human(apfs: &[Snap], tm: &[String]) {
             "pinned（ファイルを消しても戻らない容量を保持）"
         )
     );
-    println!();
     for s in apfs {
         let flag = if s.pinned { " ⚠️ pinned" } else { "" };
-        println!("- [{}] {}{}", s.kind.label(), s.name, flag);
+        let _ = writeln!(out, "- [{}] {}{}", s.kind.label(), s.name, flag);
     }
 
-    println!("\n### {}", t("What to do", "対処"));
+    let _ = writeln!(out, "\n### {}", t("What to do", "対処"));
     if count(apfs, Kind::OsUpdate) > 0 {
-        println!(
+        let _ = writeln!(
+            out,
             "- {} — {}",
             t("macOS update (staged)", "macOS更新（準備物）"),
             t(
@@ -182,7 +197,8 @@ fn human(apfs: &[Snap], tm: &[String]) {
         );
     }
     if !tm.is_empty() || count(apfs, Kind::TimeMachine) > 0 {
-        println!(
+        let _ = writeln!(
+            out,
             "- {} — {}\n  `sudo tmutil thinlocalsnapshots / 10000000000 4`",
             t("Time Machine (local)", "Time Machine（ローカル）"),
             t(
@@ -192,7 +208,8 @@ fn human(apfs: &[Snap], tm: &[String]) {
         );
     }
     if count(apfs, Kind::Other) > 0 {
-        println!(
+        let _ = writeln!(
+            out,
             "- {} — {}",
             t("Other / third-party", "その他・サードパーティ"),
             t(
@@ -201,13 +218,28 @@ fn human(apfs: &[Snap], tm: &[String]) {
             )
         );
     }
-    println!(
+    let _ = writeln!(
+        out,
         "\n_{}_",
         t(
             "DiskSage never deletes snapshots for you — it only shows and advises.",
             "DiskSageはスナップショットを自動削除しません。表示と助言のみです。"
         )
     );
+    out
+}
+
+/// A read-only snapshot diagnosis as text, for the MCP server. macOS only; other
+/// platforms get an n/a line. Does not touch the global locale (MCP stays English).
+pub fn report_text() -> String {
+    match gather() {
+        Some((apfs, tm)) => build_human(&apfs, &tm),
+        None => t(
+            "Snapshot diagnosis is macOS-only (APFS/Time Machine); n/a on this platform.",
+            "スナップショット診断はmacOS専用（APFS/Time Machine）。このOSでは非対応です。",
+        )
+        .to_string(),
+    }
 }
 
 /// Dependency-free JSON (matches the `df` command's hand-rolled style).
