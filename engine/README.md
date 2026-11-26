@@ -46,6 +46,7 @@ Tools:
 | `disk_usage` | free vs. used per disk/container + local snapshot count (fast) |
 | `scan` | large reclaimable items, each with a size, safety rating and suggested action |
 | `largest_folders` | the biggest folders under `$HOME` (optional `limit`, default 15) |
+| `snapshots` | APFS / Time Machine local snapshots, flagging the pinned ones that hold space freeing files won't return (macOS only) |
 
 Register it with an MCP client, e.g. Claude Desktop's `claude_desktop_config.json`
 (or `claude mcp add` for Claude Code):

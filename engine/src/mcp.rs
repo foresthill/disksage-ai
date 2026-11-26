@@ -32,9 +32,11 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const INSTRUCTIONS: &str = "DiskSage diagnoses what is using disk space. It is READ-ONLY: \
 it never deletes or changes files. Use `disk_usage` for free space at a glance, `scan` to find \
 large reclaimable items (caches, old device backups, build artifacts, VM disks) each with a \
-safety rating and a suggested action, and `largest_folders` to see the biggest folders. When you \
-suggest removing something, tell the user to review and delete it themselves in the DiskSage app \
-(which moves items to the Trash) — never instruct destructive shell commands.";
+safety rating and a suggested action, `largest_folders` to see the biggest folders, and \
+`snapshots` to diagnose APFS / Time Machine local snapshots that pin disk space (why deleting \
+files didn't return any). When you suggest removing something, tell the user to review and delete \
+it themselves in the DiskSage app (which moves items to the Trash) — never instruct destructive \
+shell commands.";
 
 /// Run the stdio server loop until stdin closes (the client disconnected).
 pub fn run() {
@@ -143,6 +145,12 @@ fn tool_list() -> Value {
                     }
                 }
             }
+        },
+        {
+            "name": "snapshots",
+            "title": "Snapshot diagnosis",
+            "description": "List and classify local APFS / Time Machine snapshots and flag the 'pinned' ones that hold space freeing files won't return. Explains why deleting files didn't free space. Read-only; macOS only (n/a elsewhere).",
+            "inputSchema": { "type": "object", "properties": {} }
         }
     ])
 }
@@ -162,6 +170,7 @@ fn tools_call(id: Value, msg: &Value) -> Value {
                 .clamp(1, 50) as usize;
             text_result(id, largest_folders_text(limit))
         }
+        Some("snapshots") => text_result(id, crate::snapshots::report_text()),
         // Per the spec, failing to *find* the tool is an MCP protocol error (not a
         // tool result with isError) so the client knows the call itself was wrong.
         Some(other) => error(id, -32602, &format!("unknown tool: {other}")),
@@ -263,7 +272,7 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
-        for want in ["disk_usage", "scan", "largest_folders"] {
+        for want in ["disk_usage", "scan", "largest_folders", "snapshots"] {
             assert!(names.iter().any(|n| n == want), "missing {want}");
         }
         // The safety invariant: nothing that could delete or move files.
