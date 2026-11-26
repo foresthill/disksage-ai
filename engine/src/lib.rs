@@ -5,6 +5,7 @@
 //! the foundation for dropping the macOS-only bash `serve` dependency and making
 //! the app work on Windows/Linux.
 
+pub mod actions;
 pub mod ai;
 pub mod ai_preview;
 pub mod ai_status;
@@ -30,11 +31,13 @@ pub mod patterns;
 pub mod report;
 pub mod reports;
 pub mod reveal;
+pub mod routes;
 pub mod scan;
 pub mod secret;
 pub mod serve;
 pub mod settings;
 pub mod snapshots;
+pub mod state;
 pub mod top;
 pub mod trash;
 pub mod trend;
