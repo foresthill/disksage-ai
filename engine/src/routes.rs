@@ -209,7 +209,10 @@ fn note_page(req: Request, url: &str) {
     let p = reports::query_param(url, "path")
         .map(percent_decode)
         .unwrap_or_default();
-    let body = crate::notes::page(&p);
+    let from = reports::query_param(url, "from")
+        .map(percent_decode)
+        .unwrap_or_default();
+    let body = crate::notes::page(&p, &from);
     html(
         req,
         crate::page::shell("scan", t("Scan", "スキャン"), &body, false),
