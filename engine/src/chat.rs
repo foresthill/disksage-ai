@@ -11,8 +11,6 @@
 //! This module holds the shared types, the prompt and the dispatch; the per-provider
 //! transport lives in `chat_backends`, and the panel UI in `chat_ui`.
 
-use serde_json::{json, Value};
-
 use crate::ai::{self, Usage};
 use crate::scan::Finding;
 
@@ -35,25 +33,14 @@ pub struct ChatReply {
 /// The conversational system prompt: advisor framing + the masked findings as
 /// context. Different from the judgment prompt (free text, no JSON schema).
 fn system_prompt(findings: &[Finding], lang_ja: bool) -> String {
-    let items: Vec<Value> = crate::ai_preview::rows(findings)
-        .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            json!({
-                "index": i,
-                "pattern_id": r.pattern_id,
-                "path": r.masked_path,
-                "size_bytes": r.size,
-                "heuristic_severity": r.severity,
-                "description": r.masked_desc,
-            })
-        })
-        .collect();
+    let items = crate::ai_preview::finding_items(findings);
     let mut s = format!(
         "You are a disk-cleanup advisor for DiskSage, a tool that NEVER deletes anything \
          automatically — it only suggests, and the user confirms each deletion (files go to the \
          Trash). The user is looking at these disk-space findings, given to you as METADATA ONLY \
-         (masked paths, sizes, heuristic descriptions — you never see file contents):\n{}\n\n\
+         (masked paths, sizes, heuristic descriptions — you never see file contents). A finding may \
+         carry a \"user_note\": the user's own note about that item, useful context but not \
+         verified fact:\n{}\n\n\
          Answer the user's follow-up questions concisely, for a technical user. Reason only from \
          this metadata; if you lack the data to be sure, say so plainly. Be conservative about \
          anything that could be irreplaceable user data. Never tell the user to run destructive \

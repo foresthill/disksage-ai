@@ -8,7 +8,7 @@
 
 use disksage_engine::df::{self, Volume};
 use disksage_engine::util::human;
-use disksage_engine::{ai, audit, lang, mask, mcp, scan, serve, snapshots};
+use disksage_engine::{ai, ai_preview, audit, lang, mcp, scan, serve, snapshots};
 
 /// `ai [--yes] [--ai-log]` — scan, show the masked metadata that WOULD be sent,
 /// then (only with --yes and a BYOK key) send it to Claude and print per-finding
@@ -39,14 +39,18 @@ fn cmd_ai(yes: bool, ai_log: bool) {
         println!("No findings to analyze.");
         return;
     }
-    // Privacy preview: exactly the metadata that would leave the machine —
-    // paths AND descriptions masked, so this is what the AI actually receives.
+    // Privacy preview: exactly the metadata that would leave the machine — paths,
+    // descriptions AND the user's own notes, all masked. Built from the same
+    // ai_preview::rows the request uses, so this is what the AI actually receives.
     println!("The following METADATA would be sent (file contents are NEVER sent):\n");
-    let mut aliases = mask::Aliases::new();
-    for (i, f) in findings.iter().enumerate() {
-        let path = mask::mask_path(&f.path, &mut aliases);
-        let desc = mask::mask_text(&f.description, &aliases);
-        println!("  [{i}] {} {} — {}", f.severity, path, desc);
+    for (i, r) in ai_preview::rows(&findings).iter().enumerate() {
+        println!(
+            "  [{i}] {} {} — {}",
+            r.severity, r.masked_path, r.masked_desc
+        );
+        if let Some(note) = &r.masked_note {
+            println!("       📝 note: {note}");
+        }
     }
     if !yes {
         // With --ai-log, write the audit (request + masking) WITHOUT sending —
