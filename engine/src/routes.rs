@@ -76,9 +76,11 @@ pub(crate) fn handle(req: Request, state: &State) {
         ("/open-logs", true) => actions::open_logs(req),
         ("/settings", true) => actions::settings_save(req, state),
         ("/breakdown", true) => actions::breakdown(req),
+        ("/note", true) => actions::note(req),
         // GET (or any-method) read routes.
         ("/report", _) => report_page(req, &url),
         ("/breakdown", _) => breakdown_page(req, &url),
+        ("/note", _) => note_page(req, &url),
         ("/ollama-models", _) => ollama_models(req, &url),
         ("/ai-status", _) => ai_status(req),
         ("/disk-usage", _) => disk_usage(req),
@@ -198,6 +200,20 @@ fn breakdown_page(req: Request, url: &str) {
         }
         None => not_found(req, "not found"),
     }
+}
+
+/// Per-finding note editor (GET). Notes are plain data keyed by the path string
+/// — they never touch the filesystem — so, unlike /delete and /reveal, no path
+/// whitelist is needed. (The POST side lives in `actions::note`.)
+fn note_page(req: Request, url: &str) {
+    let p = reports::query_param(url, "path")
+        .map(percent_decode)
+        .unwrap_or_default();
+    let body = crate::notes::page(&p);
+    html(
+        req,
+        crate::page::shell("scan", t("Scan", "スキャン"), &body, false),
+    );
 }
 
 /// Live Ollama probe for the Settings "test & fetch models" button: GET the model

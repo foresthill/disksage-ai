@@ -258,3 +258,13 @@ pub(crate) fn breakdown(mut req: Request) {
     let loc = crate::breakdown::handle_post(&body); // parse + validate + trash
     redirect(req, &loc);
 }
+
+/// Save / clear a per-finding note. Plain data keyed by the path string: notes
+/// never touch the filesystem (so, unlike /delete and /reveal, no whitelist is
+/// needed) and are not sent to the AI here — storage only.
+pub(crate) fn note(mut req: Request) {
+    let mut body = String::new();
+    let _ = req.as_reader().read_to_string(&mut body);
+    let loc = crate::notes::handle_post(&body);
+    redirect(req, &loc);
+}
