@@ -474,6 +474,31 @@ pub fn run(port: u16) -> Result<(), String> {
             }
             continue;
         }
+        // User-authored note for a finding's path: GET renders the editor, POST
+        // saves it. Notes are plain data keyed by the path string and never touch
+        // the filesystem, so (unlike /delete and /reveal) no path whitelist is
+        // needed. Not sent to the AI here — display/storage only.
+        if path == "/note" {
+            if *req.method() == Method::Post {
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+                let loc = crate::notes::handle_post(&body);
+                let hdr = Header::from_bytes(&b"Location"[..], loc.as_bytes()).expect("hdr");
+                let _ = req.respond(Response::empty(303).with_header(hdr));
+                continue;
+            }
+            let p = reports::query_param(&url, "path")
+                .map(percent_decode)
+                .unwrap_or_default();
+            let html = crate::page::shell(
+                "scan",
+                t("Scan", "スキャン"),
+                &crate::notes::page(&p),
+                false,
+            );
+            let _ = req.respond(Response::from_string(html).with_header(ctype()));
+            continue;
+        }
         // Aggregate drill-down (node_modules / Library caches): GET renders the
         // per-item picker; POST trashes the selected sub-items (validated
         // structurally, never trusting the posted path).
