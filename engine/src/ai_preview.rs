@@ -147,7 +147,8 @@ pub fn page_html(findings: Option<&[Finding]>) -> String {
         };
         // Link to the note editor (keyed by the real path, local-only) so the intro's
         // promise — "edit the note if anything should not be sent" — has a way to act.
-        let href = format!("/note?path={}", percent_encode(&r.real_path));
+        // `from=preview` returns here after saving, not to the Scan page.
+        let href = format!("/note?path={}&from=preview", percent_encode(&r.real_path));
         // Show the user's note under the description, exactly as it would be sent, so
         // they can spot anything to redact — with a link to edit it (or add one) here.
         let note = match &r.masked_note {

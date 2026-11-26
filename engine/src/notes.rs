@@ -100,10 +100,13 @@ pub fn card_html(map: &BTreeMap<String, String>, path: &str) -> String {
     }
 }
 
-/// The note editor page body (sits inside the served shell).
-pub fn page(path: &str) -> String {
+/// The note editor page body (sits inside the served shell). `from` is where the
+/// user came from ("preview" = the AI-preview screen, anything else = Scan), so
+/// Back and the post-save redirect return there.
+pub fn page(path: &str, from: &str) -> String {
     let map = load();
     let current = note_of(&map, path).unwrap_or("");
+    let from_preview = from == "preview";
     let heading = t(
         "<h2 style='font-size:18px;margin:2px 0 4px'>📝 Note</h2>",
         "<h2 style='font-size:18px;margin:2px 0 4px'>📝 メモ</h2>",
@@ -114,25 +117,41 @@ pub fn page(path: &str) -> String {
         "この項目についてのあなた自身のメモ — 残す理由、原因、「開いたら○○だった」など。\
          DiskSage はそのまま保存し、書き換えません。",
     );
-    let back = t("← Back to Scan", "← スキャンに戻る");
+    // Back (and the post-save redirect) return to wherever the editor was opened from.
+    let (back, back_href) = if from_preview {
+        (
+            t("← Back to the AI preview", "← 送信内容の確認に戻る"),
+            "/ai-preview",
+        )
+    } else {
+        (t("← Back to Scan", "← スキャンに戻る"), "/")
+    };
+    // Carry the origin through the POST so handle_post redirects back to it. Only the
+    // known "preview" value is emitted (handle_post treats anything else as Scan).
+    let from_field = if from_preview {
+        "<input type='hidden' name='from' value='preview'>"
+    } else {
+        ""
+    };
     let save_label = t("💾 Save", "💾 保存");
     let clear_hint = t(
         "Leave it empty and save to remove the note.",
         "空にして保存すると削除されます。",
     );
     let privacy = t(
-        "This note is NOT sent anywhere automatically. (A later option can hand it to \
-         the AI as context when you ask for a judgment.)",
-        "このメモは自動でどこにも送信されません。（将来、AI 判定を頼んだときに文脈として\
-         渡すオプションを追加予定）",
+        "This note is NOT sent anywhere automatically. When you ask the AI to judge, it \
+         is included as masked context — shown first on the preview screen so you can \
+         redact it before sending.",
+        "このメモは自動でどこにも送信されません。AI 判定を頼んだときにマスクして文脈として\
+         同梱し、送信前に確認画面で内容を見て編集できます。",
     );
     format!(
         "{heading}\
          <div style='color:#57606a;font-size:12px;margin-bottom:6px;word-break:break-all'>📂 {p}</div>\
          <div style='color:#57606a;font-size:13px;margin-bottom:4px'>{intro}</div>\
-         <div style='margin-bottom:12px'><a href='/'>{back}</a></div>\
+         <div style='margin-bottom:12px'><a href='{back_href}'>{back}</a></div>\
          <form method='post' action='/note'>\
-         <input type='hidden' name='path' value='{p}'>\
+         <input type='hidden' name='path' value='{p}'>{from_field}\
          <textarea name='text' rows='6' style='width:100%;max-width:640px;box-sizing:border-box;\
          font-size:14px;padding:8px;border:1px solid #d0d7de;border-radius:8px'>{cur}</textarea>\
          <div style='margin-top:10px'>\
@@ -146,7 +165,8 @@ pub fn page(path: &str) -> String {
     )
 }
 
-/// Save a posted note (`path` + `text`), then redirect back to the Scan page.
+/// Save a posted note (`path` + `text`), then redirect back to where the editor was
+/// opened from: `from=preview` → the AI-preview screen, otherwise the Scan page.
 pub fn handle_post(body: &str) -> String {
     let field = |key: &str| -> Option<String> {
         body.split('&').find_map(|kv| {
@@ -157,7 +177,10 @@ pub fn handle_post(body: &str) -> String {
     if let Some(path) = field("path") {
         set(&path, &field("text").unwrap_or_default());
     }
-    "/".to_string()
+    match field("from").as_deref() {
+        Some("preview") => "/ai-preview".to_string(),
+        _ => "/".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -179,5 +202,13 @@ mod tests {
         // No `path` field → set() is never called (no file write), and it still
         // redirects to the Scan page. Avoids touching the real notes.json in CI.
         assert_eq!(handle_post("text=hi"), "/");
+    }
+
+    #[test]
+    fn handle_post_redirect_honors_from() {
+        // No path (so no write), just checking the redirect target by origin.
+        assert_eq!(handle_post("from=preview"), "/ai-preview");
+        assert_eq!(handle_post("from=scan"), "/");
+        assert_eq!(handle_post(""), "/");
     }
 }
