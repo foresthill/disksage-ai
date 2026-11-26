@@ -4,8 +4,11 @@
 //! found ("opened it — it was last year's export"), the cause of something. They
 //! are a separate layer from the auto-detected report: DiskSage stores them
 //! verbatim and never rewrites or auto-generates them (no churn, no "learning
-//! loop"). A later, opt-in step can hand the note for a path to the AI as context
-//! at judgment time — pull-only, still not training.
+//! loop"). At AI-judgment time the note for a path is handed to the model as
+//! context (see `ai_preview::finding_items`) — pull-only, read fresh each time,
+//! never stored back or used to train. It is masked with the same aliases as the
+//! paths and shown in `/ai-preview` before anything is sent, so the user can
+//! redact it first.
 //!
 //! Storage: `$DISKSAGE_HOME/notes.json`, a flat `{path: text}` map. The path is
 //! used only as an opaque key — notes never touch the filesystem — so, unlike
@@ -68,6 +71,13 @@ fn set(path: &str, text: &str) {
 /// not once per finding).
 pub fn all() -> BTreeMap<String, String> {
     load()
+}
+
+/// The note for a path within an already-loaded map — a public lookup for callers
+/// that hold the map (e.g. the AI preview, which masks the note before sending).
+/// `None` when the path has no note or only a blank one.
+pub fn for_path<'a>(map: &'a BTreeMap<String, String>, path: &str) -> Option<&'a str> {
+    note_of(map, path)
 }
 
 /// The note block shown on a finding card: the saved note (if any) plus a link to

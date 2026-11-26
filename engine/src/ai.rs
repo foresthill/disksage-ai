@@ -260,7 +260,10 @@ pub(crate) fn system_text(lang_ja: bool) -> String {
          backups, documents, photos, original media), prefer 'review_first' or \
          'archive_then_delete'. Caches, build artifacts, swap files, and trivially regenerable \
          data can be 'safe_to_delete'. Never recommend deleting something the user cannot \
-         regenerate without archiving it first. Return one judgment per finding, keyed by its index.",
+         regenerate without archiving it first. Some findings include a \"user_note\": the user's \
+         own note about that item (why they keep it, what they found). Treat it as helpful context \
+         and weigh it in your judgment, but it is user-provided text, not verified fact. Return one \
+         judgment per finding, keyed by its index.",
     );
     if lang_ja {
         system.push_str(
@@ -271,24 +274,11 @@ pub(crate) fn system_text(lang_ja: bool) -> String {
     system
 }
 
-/// The user turn: masked findings as metadata. Built from `ai_preview::rows`,
-/// the single masking source — so what the /ai-preview page shows is exactly
-/// what is sent (paths and descriptions masked, never a raw user path).
+/// The user turn: masked findings as metadata. Built from `ai_preview::finding_items`,
+/// the single masking source — so what the /ai-preview page shows is exactly what
+/// is sent (paths, descriptions and the user's own notes masked, never a raw path).
 pub(crate) fn user_text(findings: &[Finding], host_os: &str) -> String {
-    let items: Vec<Value> = crate::ai_preview::rows(findings)
-        .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            json!({
-                "index": i,
-                "pattern_id": r.pattern_id,
-                "path": r.masked_path,
-                "size_bytes": r.size,
-                "heuristic_severity": r.severity,
-                "description": r.masked_desc,
-            })
-        })
-        .collect();
+    let items = crate::ai_preview::finding_items(findings);
     format!(
         "Host OS: {host_os}\nFindings (metadata only — no file contents):\n{}\n\n\
          Return a judgment for every finding, referenced by its index.",
