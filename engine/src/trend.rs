@@ -243,12 +243,40 @@ fn svg_chart(pts: &[Point]) -> String {
     let y = |free: u64| mt + ph * (1.0 - (free as f64 - lo) / range);
 
     // Polyline through every point + a filled area under it for readability.
+    // Each point also gets an invisible hit-circle carrying the exact figures, so
+    // hovering shows a tooltip with the precise free space and timestamp.
     let mut line = String::new();
     let mut area = format!("{:.1},{:.1} ", ml, mt + ph);
+    let mut hits = String::new();
     for (i, p) in pts.iter().enumerate() {
         let (px, py) = (x(i), y(p.free));
         line.push_str(&format!("{px:.1},{py:.1} "));
         area.push_str(&format!("{px:.1},{py:.1} "));
+        // Tooltip lines: timestamp (marked when it's a scan point) + exact free.
+        let ts_lbl = if p.scan {
+            format!(
+                "{} {}",
+                p.ts,
+                if is_ja() {
+                    "◆ スキャン時"
+                } else {
+                    "◆ scan"
+                }
+            )
+        } else {
+            p.ts.clone()
+        };
+        let free_lbl = if is_ja() {
+            format!("空き {}", human(p.free))
+        } else {
+            format!("Free {}", human(p.free))
+        };
+        hits.push_str(&format!(
+            "<circle cx='{px:.1}' cy='{py:.1}' r='7' fill='transparent' pointer-events='all' \
+             class='ds-hit' data-ts='{ts}' data-free='{fl}'/>",
+            ts = esc(&ts_lbl),
+            fl = esc(&free_lbl),
+        ));
     }
     area.push_str(&format!("{:.1},{:.1}", ml + pw, mt + ph));
 
@@ -290,8 +318,8 @@ fn svg_chart(pts: &[Point]) -> String {
     let x_first = &first_ts(pts);
     let x_last = &pts[n - 1].ts;
 
-    format!(
-        "<svg viewBox='0 0 {w:.0} {h:.0}' width='100%' style='max-width:{w:.0}px;height:auto;\
+    let svg = format!(
+        "<svg id='ds-trend-svg' viewBox='0 0 {w:.0} {h:.0}' width='100%' style='max-width:{w:.0}px;height:auto;\
          border:1px solid #d0d7de;border-radius:10px;background:#fff'>\
          {grid}\
          <polyline points='{area}' fill='#0969da' fill-opacity='0.08' stroke='none'/>\
@@ -301,6 +329,12 @@ fn svg_chart(pts: &[Point]) -> String {
          <circle cx='{lx:.1}' cy='{ly:.1}' r='3.5' fill='#0969da'/>\
          <text x='{ml:.1}' y='{tb:.1}' font-size='11' fill='#57606a' text-anchor='start'>{xf}</text>\
          <text x='{xr:.1}' y='{tb:.1}' font-size='11' fill='#57606a' text-anchor='end'>{xl}</text>\
+         {hits}\
+         <g id='ds-tt' style='display:none' pointer-events='none'>\
+         <rect id='ds-tt-bg' rx='6' fill='#1f2328' opacity='0.92'/>\
+         <text id='ds-tt-tx' font-size='11' fill='#fff' text-anchor='middle'>\
+         <tspan id='ds-tt-l1' x='0' y='0'></tspan><tspan id='ds-tt-l2' x='0' y='0'></tspan></text>\
+         </g>\
          </svg>\
          <div style='color:#57606a;font-size:12px;margin-top:8px'>\
          <span style='color:#0969da'>—</span> {note} &nbsp; \
@@ -319,8 +353,41 @@ fn svg_chart(pts: &[Point]) -> String {
         } else {
             "a point recorded at scan time"
         },
-    )
+    );
+    format!("{svg}{TOOLTIP_JS}")
 }
+
+/// Hover behaviour for the trend chart. Each `.ds-hit` circle carries the exact
+/// figures in `data-ts` / `data-free`; on hover we fill the in-SVG tooltip (so it
+/// scales with the chart), size the background to the text via getBBox, and clamp
+/// it inside the chart. Text is set with `textContent` only (never HTML), so the
+/// server-escaped labels can't inject markup. No external script.
+const TOOLTIP_JS: &str = r#"<script>(function(){
+var svg=document.getElementById('ds-trend-svg');if(!svg)return;
+var tt=document.getElementById('ds-tt'),bg=document.getElementById('ds-tt-bg'),
+tx=document.getElementById('ds-tt-tx'),l1=document.getElementById('ds-tt-l1'),
+l2=document.getElementById('ds-tt-l2');
+var W=820,PAD=6,LH=14;
+function show(c){
+var x=parseFloat(c.getAttribute('cx')),y=parseFloat(c.getAttribute('cy'));
+l1.textContent=c.getAttribute('data-ts')||'';
+l2.textContent=c.getAttribute('data-free')||'';
+var below=y<58;var top=below?y+12:y-34;
+l1.setAttribute('x',x);l1.setAttribute('y',top);
+l2.setAttribute('x',x);l2.setAttribute('y',top+LH);
+tt.style.display='';
+var b=tx.getBBox();var bw=b.width+PAD*2,bh=b.height+PAD*2;
+var dx=0,left=x-bw/2,right=x+bw/2;
+if(left<2)dx=2-left;else if(right>W-2)dx=(W-2)-right;
+if(dx){l1.setAttribute('x',x+dx);l2.setAttribute('x',x+dx);b=tx.getBBox();}
+bg.setAttribute('x',b.x-PAD);bg.setAttribute('y',b.y-PAD);
+bg.setAttribute('width',bw);bg.setAttribute('height',bh);
+}
+function hide(){tt.style.display='none';}
+svg.querySelectorAll('.ds-hit').forEach(function(c){
+c.addEventListener('mouseenter',function(){show(c);});
+c.addEventListener('mouseleave',hide);});
+})();</script>"#;
 
 fn first_ts(pts: &[Point]) -> String {
     pts.first().map(|p| p.ts.clone()).unwrap_or_default()
