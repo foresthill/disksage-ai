@@ -287,6 +287,12 @@ fn page(req: Request, url: &str, path: &str, state: &State) {
             &reports::reports_html(),
             false,
         ),
+        "/safety" => crate::page::shell(
+            "safety",
+            t("Safety rules", "安全ルール"),
+            &crate::safety::safety_html(),
+            false,
+        ),
         "/settings" => {
             let saved = reports::query_param(url, "saved").is_some();
             crate::page::shell(

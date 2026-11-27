@@ -30,10 +30,11 @@ fn sidebar(active: &str) -> String {
     format!(
         "<nav style='position:fixed;left:0;top:0;bottom:0;width:200px;background:#1f2328;\
          color:#fff;padding:18px 14px;box-sizing:border-box;z-index:20;overflow:auto'>\
-         <div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>{}{}{}{}</nav>",
+         <div style='font-weight:700;font-size:17px;margin:2px 0 18px'>🩺 DiskSage</div>{}{}{}{}{}</nav>",
         item("/", "🔍", t("Scan", "スキャン"), "scan"),
         item("/trend", "📈", t("Trend", "推移"), "trend"),
         item("/reports", "📁", t("Reports", "レポート"), "reports"),
+        item("/safety", "🛡", t("Safety", "安全"), "safety"),
         item("/settings", "⚙️", t("Settings", "設定"), "settings"),
     )
 }
