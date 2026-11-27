@@ -34,6 +34,7 @@ pub mod report;
 pub mod reports;
 pub mod reveal;
 pub mod routes;
+pub mod safety;
 pub mod scan;
 pub mod secret;
 pub mod serve;
