@@ -51,6 +51,20 @@ fn cmd_ai(yes: bool, ai_log: bool) {
         if let Some(note) = &r.masked_note {
             println!("       📝 note: {note}");
         }
+        // The pattern's deletion guide is sent too (built-in catalog text, no
+        // personal data) — show it so the preview matches the payload.
+        if let Some(rec) = disksage_engine::patterns::recipe_for(r.pattern_id) {
+            let mut parts: Vec<String> = Vec::new();
+            if !rec.why_safe.is_empty() {
+                parts.push(rec.why_safe);
+            }
+            parts.extend(rec.reclaim);
+            parts.extend(rec.caveat);
+            parts.extend(rec.source);
+            if !parts.is_empty() {
+                println!("       📘 guide: {}", parts.join(" · "));
+            }
+        }
     }
     if !yes {
         // With --ai-log, write the audit (request + masking) WITHOUT sending —

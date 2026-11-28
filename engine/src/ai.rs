@@ -262,7 +262,10 @@ pub(crate) fn system_text(lang_ja: bool) -> String {
          data can be 'safe_to_delete'. Never recommend deleting something the user cannot \
          regenerate without archiving it first. Some findings include a \"user_note\": the user's \
          own note about that item (why they keep it, what they found). Treat it as helpful context \
-         and weigh it in your judgment, but it is user-provided text, not verified fact. Return one \
+         and weigh it in your judgment, but it is user-provided text, not verified fact. Some \
+         findings also include a \"recipe\": curated guidance from DiskSage's pattern library \
+         (why_safe / reclaim command / caveat / source) — reliable reference context you may use, \
+         but still apply your own judgment to the specific finding. Return one \
          judgment per finding, keyed by its index.",
     );
     if lang_ja {
