@@ -73,7 +73,9 @@ pub fn finding_items(findings: &[Finding]) -> Vec<Value> {
     items_from_rows(&rows(findings))
 }
 
-/// Build the JSON items from already-masked rows (pure; testable without disk).
+/// Build the JSON items from already-masked rows. The only disk-ish read is the
+/// pattern library (embedded via include_str!, plus an optional user patterns.json),
+/// looked up for each finding's deletion recipe.
 fn items_from_rows(rows: &[Row]) -> Vec<Value> {
     rows.iter()
         .enumerate()
@@ -91,9 +93,71 @@ fn items_from_rows(rows: &[Row]) -> Vec<Value> {
                 // judgment time, never stored back or used to train).
                 item["user_note"] = Value::String(note.clone());
             }
+            if let Some(recipe) = recipe_value(r.pattern_id) {
+                // Layer-1 "collective knowledge": the pattern's curated deletion
+                // recipe (why it's safe / reclaim command / caveat / source). This
+                // is maintainer-authored catalog text keyed by pattern id — it holds
+                // no user data, so it isn't masked. It's still surfaced in
+                // /ai-preview so "the UI shows exactly what's sent" stays true.
+                item["recipe"] = recipe;
+            }
             item
         })
         .collect()
+}
+
+/// A pattern's recipe as a JSON object for the prompt, or None if it has none
+/// (or all fields are empty). Provenance: the built-in / community pattern library.
+fn recipe_value(id: &str) -> Option<Value> {
+    let r = crate::patterns::recipe_for(id)?;
+    let mut v = serde_json::Map::new();
+    if !r.why_safe.is_empty() {
+        v.insert("why_safe".into(), Value::String(r.why_safe));
+    }
+    if let Some(c) = r.reclaim {
+        v.insert("reclaim".into(), Value::String(c));
+    }
+    if let Some(c) = r.caveat {
+        v.insert("caveat".into(), Value::String(c));
+    }
+    if let Some(s) = r.source {
+        v.insert("source".into(), Value::String(s));
+    }
+    if v.is_empty() {
+        None
+    } else {
+        Some(Value::Object(v))
+    }
+}
+
+/// The recipe rendered for the preview table (text, not masked — same catalog data
+/// that `recipe_value` sends), so the user sees it before it leaves. Empty when the
+/// pattern has no recipe.
+fn recipe_preview(id: &str, label: &str) -> String {
+    let r = match crate::patterns::recipe_for(id) {
+        Some(r) => r,
+        None => return String::new(),
+    };
+    let mut bits: Vec<String> = Vec::new();
+    if !r.why_safe.is_empty() {
+        bits.push(esc(&r.why_safe));
+    }
+    if let Some(c) = &r.reclaim {
+        bits.push(esc(c));
+    }
+    if let Some(c) = &r.caveat {
+        bits.push(esc(c));
+    }
+    if let Some(s) = &r.source {
+        bits.push(esc(s));
+    }
+    if bits.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<div style='margin-top:4px;color:#8c959f'>📘 {label}: {}</div>",
+        bits.join(" · ")
+    )
 }
 
 /// The /ai-preview page body: a table of real → masked, exactly what the AI gets.
@@ -103,8 +167,8 @@ pub fn page_html(findings: Option<&[Finding]>) -> String {
         "<h2 style='font-size:18px;margin:2px 0 4px'>🔒 AI に渡す内容</h2>",
     );
     let intro = t(
-        "Exactly the metadata that would be sent — file contents are never sent, and nothing is sent until you press \"Ask the AI\". User/app names are masked to &lt;dirN&gt;. Your own notes are included as context (also masked); since a note is free text, review it below and edit the note if anything in it should not be sent.",
-        "送信されるメタデータそのものです。ファイル内容は送られず、「AIに判定してもらう」を押すまで何も送信しません。ユーザー/アプリ名は &lt;dirN&gt; にマスクされます。あなたのメモも文脈として同梱します（同様にマスク）。メモは自由文のため、下の内容を確認し、送りたくない記述があればメモを編集してください。",
+        "Exactly the metadata that would be sent — file contents are never sent, and nothing is sent until you press \"Ask the AI\". User/app names are masked to &lt;dirN&gt;. Your own notes are included as context (also masked); since a note is free text, review it below and edit the note if anything in it should not be sent. Each finding's deletion guide (from the built-in pattern library — no personal data) is also included.",
+        "送信されるメタデータそのものです。ファイル内容は送られず、「AIに判定してもらう」を押すまで何も送信しません。ユーザー/アプリ名は &lt;dirN&gt; にマスクされます。あなたのメモも文脈として同梱します（同様にマスク）。メモは自由文のため、下の内容を確認し、送りたくない記述があればメモを編集してください。各検出項目の「削除ガイド」（組み込みパターン由来・個人情報なし）も同梱されます。",
     );
     let back = t("← Back to Scan", "← スキャンに戻る");
     let mut out = format!(
@@ -139,6 +203,7 @@ pub fn page_html(findings: Option<&[Finding]>) -> String {
     let note_label = t("note", "メモ");
     let edit_label = t("edit", "編集");
     let add_label = t("📝 Add a note", "📝 メモを書く");
+    let guide_label = t("guide sent", "同梱ガイド");
     for r in &rows {
         let mark = if r.anonymized {
             " <span style='color:#1a7f37;font-size:11px'>✓ masked</span>"
@@ -162,11 +227,14 @@ pub fn page_html(findings: Option<&[Finding]>) -> String {
                  <a href='{href}' style='font-size:11px'>{add_label}</a></div>"
             ),
         };
+        // The deletion guide that goes with this finding (catalog text, unmasked),
+        // shown so the preview matches the payload exactly.
+        let guide = recipe_preview(r.pattern_id, guide_label);
         out.push_str(&format!(
             "<tr>\
              <td style='padding:6px 8px;border-bottom:1px solid #eaeef2;color:#8c959f'>{}</td>\
              <td style='padding:6px 8px;border-bottom:1px solid #eaeef2'>{}{mark}</td>\
-             <td style='padding:6px 8px;border-bottom:1px solid #eaeef2'>{} <span style='color:#8c959f'>({})</span>{note}</td></tr>",
+             <td style='padding:6px 8px;border-bottom:1px solid #eaeef2'>{} <span style='color:#8c959f'>({})</span>{note}{guide}</td></tr>",
             esc(&r.real_path),
             esc(&r.masked_path),
             esc(&r.masked_desc),
@@ -221,6 +289,21 @@ mod tests {
         // And the JSON item carries no user_note key when there's no note.
         let items = items_from_rows(&rows);
         assert!(items[0].get("user_note").is_none());
+    }
+
+    #[test]
+    fn recipe_is_attached_to_items_for_patterns_that_have_one() {
+        // npm_cache carries a recipe in the built-in library; ollama_models does not.
+        let f = vec![
+            finding("npm_cache", "~/.npm/_cacache"),
+            finding("ollama_models", "~/.ollama/models"),
+        ];
+        let items = items_from_rows(&rows_with_notes(&f, &BTreeMap::new()));
+        let recipe = items[0].get("recipe").expect("npm_cache item has a recipe");
+        assert!(recipe.get("why_safe").is_some());
+        assert!(recipe["source"].as_str().unwrap().starts_with("https://"));
+        // A pattern without a recipe carries no recipe key.
+        assert!(items[1].get("recipe").is_none());
     }
 
     #[test]
