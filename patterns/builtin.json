@@ -27,7 +27,15 @@
     "label_en": "npm download cache (~/.npm/_cacache)",
     "label_ja": "npm ダウンロードキャッシュ (~/.npm/_cacache)",
     "action_en": "Clear with 'npm cache clean --force'; it only re-downloads on the next install.",
-    "action_ja": "'npm cache clean --force' で削除（次回インストール時に再DLされるだけ）。"
+    "action_ja": "'npm cache clean --force' で削除（次回インストール時に再DLされるだけ）。",
+    "recipe": {
+      "why_safe_en": "This is npm's download cache, not your projects. Installed node_modules keep working; npm just re-fetches packages it no longer has.",
+      "why_safe_ja": "これは npm のダウンロードキャッシュで、プロジェクト本体ではありません。インストール済みの node_modules はそのまま動き、npm は無い分を再取得するだけです。",
+      "reclaim": "npm cache clean --force",
+      "caveat_en": "The next install re-downloads packages, so that one install is slower.",
+      "caveat_ja": "次回のインストールでパッケージを再ダウンロードするため、その1回だけ遅くなります。",
+      "source": "https://docs.npmjs.com/cli/v10/commands/npm-cache"
+    }
   },
   {
     "id": "pnpm_store",
@@ -37,7 +45,15 @@
     "label_en": "pnpm content-addressable store",
     "label_ja": "pnpm コンテンツアドレスストア",
     "action_en": "Remove only unreferenced packages with 'pnpm store prune'; don't delete the whole (shared) store.",
-    "action_ja": "'pnpm store prune' で未参照パッケージのみ削除（共有ストア全体は削除しない）。"
+    "action_ja": "'pnpm store prune' で未参照パッケージのみ削除（共有ストア全体は削除しない）。",
+    "recipe": {
+      "why_safe_en": "The store is shared across all your pnpm projects. 'prune' removes only packages no project references, so your projects are unaffected.",
+      "why_safe_ja": "このストアは全 pnpm プロジェクトで共有されます。'prune' はどのプロジェクトも参照していないパッケージだけを削除するので、プロジェクトに影響はありません。",
+      "reclaim": "pnpm store prune",
+      "caveat_en": "Don't delete the whole store — it's shared. Pruned packages re-download if a future install needs them.",
+      "caveat_ja": "ストア全体は削除しないこと（共有のため）。prune したパッケージは、将来必要になれば再ダウンロードされます。",
+      "source": "https://pnpm.io/cli/store"
+    }
   },
   {
     "id": "library_caches",
@@ -57,7 +73,13 @@
     "label_en": "Xcode DerivedData",
     "label_ja": "Xcode DerivedData",
     "action_en": "Delete it; Xcode rebuilds on the next build.",
-    "action_ja": "削除可。次回ビルドで Xcode が再生成します。"
+    "action_ja": "削除可。次回ビルドで Xcode が再生成します。",
+    "recipe": {
+      "why_safe_en": "Build intermediates and indexes, not source code. Xcode regenerates them on the next build.",
+      "why_safe_ja": "ビルドの中間生成物とインデックスで、ソースコードではありません。次回ビルドで Xcode が再生成します。",
+      "caveat_en": "The next build and re-indexing take longer, since everything rebuilds from scratch.",
+      "caveat_ja": "一から再生成されるため、次回のビルドとインデックス再作成に時間がかかります。"
+    }
   },
   {
     "id": "ios_devicesupport",

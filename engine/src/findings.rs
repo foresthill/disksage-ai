@@ -63,6 +63,58 @@ fn path_cell(path: &str) -> String {
     )
 }
 
+/// The pattern's deletion recipe (Layer-1 collective knowledge), if it has one:
+/// why it's safe, a tool-native reclaim command (shown, never run), a caveat, and
+/// a cited source. Collapsed by default so the dense 2-column grid stays readable.
+/// Looked up by pattern id so the recipe lives once in the pattern, not per finding.
+fn recipe_html(id: &str) -> String {
+    let r = match crate::patterns::recipe_for(id) {
+        Some(r) => r,
+        None => return String::new(),
+    };
+    let mut parts = String::new();
+    if !r.why_safe.is_empty() {
+        parts.push_str(&format!(
+            "<div>{} {}</div>",
+            t("✅ Why it's safe:", "✅ 安全な理由:"),
+            esc(&r.why_safe)
+        ));
+    }
+    if let Some(cmd) = &r.reclaim {
+        parts.push_str(&format!(
+            "<div style='margin-top:3px'>{} <code style='background:#f6f8fa;border:1px solid \
+             #d0d7de;border-radius:4px;padding:1px 5px'>{}</code></div>",
+            t("↩︎ Reclaim with:", "↩︎ 回収コマンド:"),
+            esc(cmd)
+        ));
+    }
+    if let Some(cv) = &r.caveat {
+        parts.push_str(&format!(
+            "<div style='margin-top:3px'>{} {}</div>",
+            t("⚠️ Note:", "⚠️ 注意:"),
+            esc(cv)
+        ));
+    }
+    if let Some(src) = &r.source {
+        // External URL shown as text, not an <a>: in the Tauri webview a plain
+        // anchor would navigate the UI away. The user can read/copy the source.
+        parts.push_str(&format!(
+            "<div style='margin-top:3px;color:#8c959f;overflow-wrap:anywhere'>{} {}</div>",
+            t("📄 Source:", "📄 出典:"),
+            esc(src)
+        ));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<details style='margin-top:6px;font-size:12px;color:#57606a'>\
+         <summary style='cursor:pointer;color:#0969da'>{}</summary>\
+         <div style='margin-top:5px;line-height:1.5;padding-left:2px'>{parts}</div></details>",
+        t("📘 Deletion guide", "📘 削除ガイド"),
+    )
+}
+
 /// The AI badge for one finding, if a judgment exists for it.
 fn ai_badge(judgment: Option<&Judgment>) -> String {
     match judgment {
@@ -156,11 +208,12 @@ pub fn findings_html(findings: &[Finding], ai: Option<&[Judgment]>) -> String {
              border-radius:10px'>{}</span></div>\
              <div style='margin-top:6px'>{}</div>\
              {}\
-             <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}{}{}</div>",
+             <div style='font-size:13px;margin-top:4px'>💡 {}</div>{}{}{}{}</div>",
             esc(&f.severity.to_uppercase()),
             esc(&f.description),
             path_cell(&f.path),
             esc(&f.action),
+            recipe_html(f.id),
             drill,
             ai_badge(ai_by_index.get(&idx).copied()),
             crate::notes::card_html(&notes, &f.path),

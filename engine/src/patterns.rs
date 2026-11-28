@@ -31,6 +31,43 @@ struct PatternJson {
     label_ja: String,
     action_en: String,
     action_ja: String,
+    /// Optional structured deletion recipe (Layer-1 "collective knowledge"):
+    /// why it's safe, the tool's own reclaim command (shown, never run), a
+    /// caveat, and a source URL to cite. Backward-compatible — patterns without
+    /// it parse exactly as before.
+    #[serde(default)]
+    recipe: Option<RecipeJson>,
+}
+
+/// The on-disk shape of a pattern's deletion recipe. Text fields are bilingual
+/// (mirroring `label_en`/`label_ja`); `reclaim` is a command and `source` a URL,
+/// both language-neutral.
+#[derive(Deserialize, Clone)]
+struct RecipeJson {
+    #[serde(default)]
+    why_safe_en: String,
+    #[serde(default)]
+    why_safe_ja: String,
+    #[serde(default)]
+    reclaim: Option<String>,
+    #[serde(default)]
+    caveat_en: Option<String>,
+    #[serde(default)]
+    caveat_ja: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+/// A pattern's deletion recipe, resolved to the active language. This is the
+/// provenance-tagged "why & how" shown on a finding and (later) handed to the AI.
+#[derive(Clone)]
+pub struct Recipe {
+    pub why_safe: String,
+    /// A tool's own reclaim command, e.g. `npm cache clean --force`. Displayed for
+    /// the user to run — DiskSage never runs it itself.
+    pub reclaim: Option<String>,
+    pub caveat: Option<String>,
+    pub source: Option<String>,
 }
 
 /// A compiled pattern. `id`/`severity` are interned to `&'static str` (once, at
@@ -44,6 +81,7 @@ pub struct Pattern {
     label_ja: String,
     action_en: String,
     action_ja: String,
+    recipe: Option<RecipeJson>,
 }
 
 impl Pattern {
@@ -68,6 +106,29 @@ impl Pattern {
             &self.action_en
         }
     }
+    /// The recipe resolved to the active language, if this pattern has one.
+    pub fn recipe(&self) -> Option<Recipe> {
+        let r = self.recipe.as_ref()?;
+        let why_safe = if is_ja() {
+            &r.why_safe_ja
+        } else {
+            &r.why_safe_en
+        };
+        let caveat = if is_ja() { &r.caveat_ja } else { &r.caveat_en };
+        Some(Recipe {
+            why_safe: why_safe.clone(),
+            reclaim: r.reclaim.clone(),
+            caveat: caveat.clone(),
+            source: r.source.clone(),
+        })
+    }
+}
+
+/// The recipe for a pattern id, if any — the lookup findings rendering uses so the
+/// recipe lives once (in the pattern) and isn't copied into every `Finding`.
+/// Bespoke code-only patterns (iphone_backup, snapshots, …) simply have none.
+pub fn recipe_for(id: &str) -> Option<Recipe> {
+    all().iter().find(|p| p.id == id).and_then(|p| p.recipe())
 }
 
 fn expand(home: &Path, p: &str) -> PathBuf {
@@ -103,6 +164,7 @@ fn compile(j: PatternJson) -> Pattern {
         label_ja: j.label_ja,
         action_en: j.action_en,
         action_ja: j.action_ja,
+        recipe: j.recipe,
     }
 }
 
@@ -160,6 +222,35 @@ mod tests {
         assert_eq!(pnpm.paths.len(), 3);
         assert_eq!(pnpm.threshold, 5 * 1024 * 1024 * 1024);
         assert_eq!(pnpm.severity, "safe");
+    }
+
+    #[test]
+    fn recipes_parse_and_resolve_when_present() {
+        let list = parse(BUILTIN);
+        // npm_cache carries a full recipe with a cited source.
+        let npm = list.iter().find(|p| p.id == "npm_cache").unwrap();
+        let r = npm.recipe().expect("npm_cache has a recipe");
+        assert!(!r.why_safe.is_empty());
+        assert_eq!(r.reclaim.as_deref(), Some("npm cache clean --force"));
+        assert!(r.source.as_deref().unwrap().starts_with("https://"));
+        // xcode_derived_data has a partial recipe (no source / reclaim) — optional
+        // fields must stay optional.
+        let xc = list
+            .iter()
+            .find(|p| p.id == "xcode_derived_data")
+            .unwrap()
+            .recipe()
+            .expect("xcode recipe");
+        assert!(xc.source.is_none() && xc.reclaim.is_none());
+        assert!(xc.caveat.is_some());
+    }
+
+    #[test]
+    fn patterns_without_a_recipe_return_none() {
+        // A pattern that declares no recipe must parse fine and yield None.
+        let list = parse(BUILTIN);
+        let ollama = list.iter().find(|p| p.id == "ollama_models").unwrap();
+        assert!(ollama.recipe().is_none());
     }
 
     #[test]
